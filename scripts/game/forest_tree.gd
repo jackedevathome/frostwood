@@ -195,6 +195,7 @@ func hit(damage: float, tool_id: String, source: Node2D) -> void:
 		Audio.play_at("swing", global_position, -6)
 		return
 	hp -= dmg
+	_game.player.add_xp(Skills.XP.chop)
 	_shake = 0.35
 	set_process(true)
 	Audio.play_at("chop", global_position, 0, 0.12)
@@ -210,7 +211,9 @@ func _fell(source: Node2D) -> void:
 	_fall_t = 0.0
 	remove_from_group("hittable")
 	Audio.play_at("tree_fall", global_position, 2)
-	var n := 3 + int(scale_f * 1.5)
+	_game.player.add_xp(Skills.XP.fell)
+	_game.world_map.clear_at(global_position)
+	var n: int = 3 + int(scale_f * 1.5) + _game.bonus_drops()
 	for i in n:
 		var p := global_position + Vector2(_fall_dir * randf_range(20, height * 0.7), randf_range(-16, 16))
 		_game.spawn_drop("wood", 1, p, global_position)

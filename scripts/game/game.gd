@@ -29,6 +29,10 @@ var _howl_t := 25.0
 var _fade_t := 0.0
 var _faded: Array = []
 var _rng := RandomNumberGenerator.new()
+var world_map: WorldMap
+var _map_screen: MapScreen
+var _reveal_t := 0.0
+var _flags: Array = []  # world flag nodes, parallel to world_map.waypoints
 
 
 static func light_texture() -> Texture2D:
@@ -82,6 +86,9 @@ func _ready() -> void:
 	camera.make_current()
 
 	_gen_world()
+	world_map = WorldMap.new(WORLD_HALF)
+	world_map.build(lakes, entities.get_children())
+	world_map.reveal(player.global_position)
 	_make_bounds()
 	_make_snow()
 	_make_ghost()
@@ -91,9 +98,13 @@ func _ready() -> void:
 	hud.setup(self)
 	_pause = PauseMenu.new()
 	add_child(_pause)
-	_pause.resumed.connect(_set_crosshair)
+	_pause.resumed.connect(restore_cursor)
 	_death = DeathScreen.new()
 	add_child(_death)
+	_map_screen = MapScreen.new()
+	_map_screen.setup(self)
+	add_child(_map_screen)
+	player.leveled_up.connect(_on_level_up)
 
 	_night = is_night()
 	_apply_lighting()
@@ -104,7 +115,7 @@ func _ready() -> void:
 	_set_crosshair()
 	hud.show_banner("Day 1")
 	message("Chop trees with your axe (Left Mouse) to gather wood.", UITheme.ACCENT)
-	message("Press %s to craft. Build a campfire before night falls!" % Settings.key_name("craft"), UITheme.ACCENT)
+	message("Press %s for your inventory and crafting. Build a campfire before night falls!" % Settings.key_name("inventory"), UITheme.ACCENT)
 
 
 func _exit_tree() -> void:
@@ -312,6 +323,8 @@ func _process(delta: float) -> void:
 		hud.show_banner("Day %d" % day, Color(1.0, 0.9, 0.7))
 		Audio.play("dawn", -4, 0.0)
 		message("Dawn breaks. You survived the night!", UITheme.WARM)
+		if day > 1:
+			player.add_xp(Skills.XP.dawn)
 	var n := is_night()
 	if n != _night:
 		_night = n
@@ -345,12 +358,15 @@ func _process(delta: float) -> void:
 
 	_snow.global_position = camera.get_screen_center_position() + Vector2(-120, -420)
 
-	var show_ghost := player.holding("campfire") and not player.dead
+	_reveal_t -= delta
+	if _reveal_t <= 0:
+		_reveal_t = 0.4
+		world_map.reveal(player.global_position)
+
+	var show_ghost := player.holding("campfire") and not player.dead and not hud.any_window_open()
 	_ghost.visible = show_ghost
 	if show_ghost:
-		var p := get_global_mouse_position()
-		if p.distance_to(player.global_position) > 140:
-			p = player.global_position + (p - player.global_position).limit_length(140)
+		var p := placement_point()
 		_ghost.global_position = p
 		_ghost_ok = _can_place(p)
 		_ghost.queue_redraw()
@@ -360,13 +376,26 @@ func _unhandled_input(event: InputEvent) -> void:
 	if player.dead:
 		return
 	if event.is_action_pressed("pause"):
-		if hud.crafting_open:
-			hud.toggle_crafting()
+		if player.placing:
+			player.cancel_placing()
+		elif hud.any_window_open():
+			hud.close_windows()
 		else:
 			_pause.open()
 		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("inventory"):
+		hud.toggle_window("inventory")
+		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("craft"):
-		hud.toggle_crafting()
+		hud.toggle_window("craft")
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("skills"):
+		hud.toggle_window("skills")
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("map"):
+		hud.close_windows()
+		player.cancel_placing()
+		_map_screen.open()
 		get_viewport().set_input_as_handled()
 
 
@@ -542,6 +571,7 @@ func interact() -> void:
 			var n := player.count("raw_meat")
 			player.remove_item("raw_meat", n)
 			player.add_item("cooked_meat", n)
+			player.add_xp(Skills.XP.cook * n)
 			Audio.play("ignite", -6)
 			Audio.play("craft", -10)
 			message("Cooked %d meat over the fire." % n, UITheme.WARM)
@@ -588,11 +618,26 @@ func craft(rec: Dictionary) -> void:
 	for k in rec.cost:
 		player.remove_item(k, rec.cost[k])
 	player.add_item(rec.id, rec.amount)
+	player.add_xp(Skills.XP.craft)
 	Audio.play("craft", -2)
 	message("Crafted %s%s" % [Items.item_name(rec.id), (" x%d" % rec.amount) if rec.amount > 1 else ""], UITheme.WARM)
-	var slot := Items.HOTBAR.find(rec.id)
-	if slot >= 0:
-		player.select(slot)
+	if rec.id == "campfire":
+		# go straight to placing it
+		hud.close_windows()
+		player.start_placing()
+	elif Items.is_equippable(rec.id) and not rec.id in player.hotbar:
+		if player.auto_equip(rec.id):
+			message("%s added to your hotbar." % Items.item_name(rec.id))
+		else:
+			message("Drag the %s onto a hotbar slot to use it." % Items.item_name(rec.id), UITheme.MUTED)
+
+
+## Where a campfire would be placed: the mouse position, clamped to the player's reach.
+func placement_point() -> Vector2:
+	var p := get_global_mouse_position()
+	if p.distance_to(player.global_position) > 140:
+		p = player.global_position + (p - player.global_position).limit_length(140)
+	return p
 
 
 func _can_place(p: Vector2) -> bool:
@@ -617,6 +662,7 @@ func place_campfire(p: Vector2) -> bool:
 	f.position = p
 	entities.add_child(f)
 	Audio.play_at("place", p)
+	player.add_xp(Skills.XP.build)
 	message("Campfire built. Press %s near it to add wood or cook." % Settings.key_name("interact"), UITheme.WARM)
 	return true
 
@@ -707,6 +753,65 @@ func _on_player_died(cause: String) -> void:
 	Audio.stop_music(1.5)
 	Audio.set_ambience("amb_forest", -80, 2.0)
 	Audio.play("game_over", -2, 0.0)
-	if hud.crafting_open:
-		hud.toggle_crafting()
-	_death.show_death(cause, day, record)
+	hud.close_windows()
+	_death.show_death(cause, day, record, player.level)
+
+
+# ---------------------------------------------------------------- xp, skills, map
+func _on_level_up(lvl: int) -> void:
+	hud.show_banner("Level %d!" % lvl, Color(0.85, 0.75, 1.0))
+	Audio.play("level_up", -2, 0.0)
+	message("Level up! You have %d skill point%s. Press %s to spend." % [player.skill_points, "" if player.skill_points == 1 else "s", Settings.key_name("skills")], Color(0.85, 0.75, 1.0))
+
+
+## Extra drops from the Bountiful skill: 25% chance per rank.
+func bonus_drops() -> int:
+	var n := 0
+	for i in player.skill("bountiful"):
+		if randf() < 0.25:
+			n += 1
+	return n
+
+
+func xp_text(pos: Vector2, amount: int) -> void:
+	var l := Label.new()
+	l.text = "+%d XP" % amount
+	l.add_theme_font_size_override("font_size", 15)
+	l.add_theme_color_override("font_color", Color(0.82, 0.7, 1.0))
+	l.add_theme_color_override("font_outline_color", Color(0.08, 0.04, 0.12))
+	l.add_theme_constant_override("outline_size", 5)
+	l.position = pos + Vector2(-20, 0)
+	fx.add_child(l)
+	var tw := l.create_tween().set_parallel()
+	tw.tween_property(l, "position:y", l.position.y - 26, 1.0).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_CUBIC)
+	tw.tween_property(l, "modulate:a", 0.0, 0.6).set_delay(0.5)
+	tw.chain().tween_callback(l.queue_free)
+
+
+func add_waypoint(p: Vector2) -> bool:
+	var wp := world_map.add_waypoint(p)
+	if wp.is_empty():
+		return false
+	var flag := WaypointFlag.new()
+	flag.position = p
+	flag.color = wp.color
+	flag.label = wp.name
+	entities.add_child(flag)
+	_flags.append(flag)
+	Audio.play("waypoint", -4, 0.05)
+	return true
+
+
+func remove_waypoint(i: int) -> void:
+	if i < 0 or i >= world_map.waypoints.size():
+		return
+	world_map.waypoints.remove_at(i)
+	var flag: Node = _flags[i]
+	_flags.remove_at(i)
+	flag.queue_free()
+	Audio.play("ui_click", -6)
+
+
+func restore_cursor() -> void:
+	if not player.dead and not hud.any_window_open():
+		_set_crosshair()

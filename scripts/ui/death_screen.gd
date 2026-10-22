@@ -47,14 +47,14 @@ func _ready() -> void:
 	hide()
 
 
-func show_death(cause: String, days: int, record: bool) -> void:
+func show_death(cause: String, days: int, record: bool, lvl := 1) -> void:
 	var causes := {
 		"cold": "The cold took you.",
 		"starvation": "You starved in the wilderness.",
 		"wolves": "The wolves caught your scent.",
 		"food poisoning": "Raw meat was your undoing.",
 	}
-	_info.text = "%s\n\nYou survived %d day%s.%s" % [causes.get(cause, "The forest claimed you."), days, "" if days == 1 else "s",
+	_info.text = "%s\n\nYou survived %d day%s and reached level %d.%s" % [causes.get(cause, "The forest claimed you."), days, "" if days == 1 else "s", lvl,
 		"\nA new record!" if record else "\nLongest survival: %d" % Settings.best_days]
 	show()
 	_root.modulate.a = 0

@@ -55,7 +55,8 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	_t += delta
 	if burning:
-		fuel -= delta
+		var keeper: int = game.player.skill("firekeeper") if game else 0
+		fuel -= delta / (1.0 + 0.3 * keeper)
 		if fuel <= 0:
 			fuel = 0
 			_set_burning(false)

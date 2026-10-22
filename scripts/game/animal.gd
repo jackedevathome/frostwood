@@ -187,6 +187,8 @@ func hit(damage: float, tool_id: String, source: Node2D) -> void:
 func _die() -> void:
 	Audio.play_at("animal_die", global_position, -2)
 	var drops: Dictionary = {"wolf": {"raw_meat": 1, "hide": 1}, "deer": {"raw_meat": 2, "hide": randi_range(1, 2)}, "hare": {"raw_meat": 1}}[species]
+	drops.raw_meat += _game.player.skill("butcher")
+	_game.player.add_xp(Skills.XP[species])
 	for id in drops:
 		for i in drops[id]:
 			_game.spawn_drop(id, 1, global_position + Vector2(randf_range(-22, 22), randf_range(-8, 14)), global_position)

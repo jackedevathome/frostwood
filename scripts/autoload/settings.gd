@@ -16,7 +16,10 @@ const KEY_ACTIONS := {
 	"move_right": KEY_D,
 	"sprint": KEY_SHIFT,
 	"interact": KEY_E,
+	"inventory": KEY_I,
 	"craft": KEY_C,
+	"skills": KEY_K,
+	"map": KEY_M,
 }
 const ACTION_LABELS := {
 	"move_up": "Move Up",
@@ -25,7 +28,10 @@ const ACTION_LABELS := {
 	"move_right": "Move Right",
 	"sprint": "Sprint",
 	"interact": "Interact / Cook / Fuel fire",
-	"craft": "Crafting Menu",
+	"inventory": "Inventory",
+	"craft": "Crafting",
+	"skills": "Skill Tree",
+	"map": "World Map",
 }
 
 var master_volume := 0.8
@@ -86,7 +92,7 @@ func _build_input_map() -> void:
 	_ensure_action("pause", [_key(KEY_ESCAPE)])
 	_ensure_action("use", [_mouse(MOUSE_BUTTON_LEFT)])
 	_ensure_action("alt_use", [_mouse(MOUSE_BUTTON_RIGHT)])
-	for i in range(1, 8):
+	for i in range(1, 4):
 		_ensure_action("slot_%d" % i, [_key(KEY_0 + i)])
 	# Arrow keys as permanent secondary movement keys.
 	InputMap.action_add_event("move_up", _key(KEY_UP))

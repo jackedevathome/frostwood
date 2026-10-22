@@ -1,22 +1,32 @@
 class_name Player
 extends CharacterBody2D
-## The survivor. WASD to move, mouse to aim, left click to use the selected item.
+## The survivor. WASD to move, mouse to aim, left click to use the item in the selected hotbar slot.
 
 signal died(cause: String)
+signal leveled_up(level: int)
 
 const WALK := 135.0
 const SPRINT := 215.0
+const SLOTS := 3
 
 var health := 100.0
+var max_health := 100.0
 var hunger := 100.0
 var warmth := 100.0
 var stamina := 100.0
 var inventory := {"axe": 1, "pickaxe": 1, "berries": 2}
+var hotbar: Array[String] = ["axe", "pickaxe", "berries"]
 var selected := 0
 var aim := Vector2.RIGHT
 var sprinting := false
 var dead := false
 var heat := 0.0
+var placing := false  # campfire placement mode
+
+var level := 1
+var xp := 0
+var skill_points := 0
+var skills := {}
 
 var _game: Node
 var _cooldown := 0.0
@@ -60,8 +70,16 @@ func setup(game: Node) -> void:
 	add_child(_torch_light)
 
 
+# ---------------------------------------------------------------- inventory & hotbar
+## The item currently in hand ("" for an empty slot).
+func current_item() -> String:
+	if placing:
+		return "campfire"
+	return hotbar[selected]
+
+
 func holding(id: String) -> bool:
-	return Items.HOTBAR[selected] == id and inventory.get(id, 0) > 0
+	return current_item() == id and count(id) > 0
 
 
 func count(id: String) -> int:
@@ -88,20 +106,87 @@ func best_food() -> String:
 	return ""
 
 
-func food_count() -> int:
-	var n := 0
-	for f in Items.FOOD_PRIORITY:
-		n += count(f)
-	return n
+## Puts `id` into hotbar slot `slot`. If it is already in another slot the two slots swap.
+func assign_slot(slot: int, id: String) -> void:
+	if slot < 0 or slot >= SLOTS or (id != "" and not Items.is_equippable(id)):
+		return
+	var old := hotbar.find(id)
+	if old >= 0 and id != "":
+		hotbar[old] = hotbar[slot]
+	hotbar[slot] = id
+	Audio.play("ui_click", -8, 0.05)
+
+
+## Equips a freshly crafted item into an empty slot, if there is one.
+func auto_equip(id: String) -> bool:
+	if not Items.is_equippable(id) or id in hotbar:
+		return id in hotbar
+	var empty := hotbar.find("")
+	if empty >= 0:
+		hotbar[empty] = id
+		return true
+	return false
 
 
 func select(i: int) -> void:
+	placing = false
+	i = posmod(i, SLOTS)
 	if i == selected:
 		return
-	selected = posmod(i, Items.HOTBAR.size())
+	selected = i
 	Audio.play("ui_hover", -6, 0.1)
 
 
+func start_placing() -> void:
+	if count("campfire") <= 0:
+		return
+	placing = true
+	_game.message("Place the campfire: Left click to build, Right click to cancel.", UITheme.WARM)
+
+
+func cancel_placing() -> void:
+	if placing:
+		placing = false
+		_game.message("Placement cancelled. The campfire is in your inventory.")
+
+
+# ---------------------------------------------------------------- xp & skills
+func skill(id: String) -> int:
+	return skills.get(id, 0)
+
+
+func can_learn(id: String) -> bool:
+	var d: Dictionary = Skills.DATA[id]
+	if skill_points <= 0 or skill(id) >= d.max:
+		return false
+	return d.req == "" or skill(d.req) > 0
+
+
+func learn(id: String) -> bool:
+	if not can_learn(id):
+		return false
+	skills[id] = skill(id) + 1
+	skill_points -= 1
+	if id == "vitality":
+		max_health = 100.0 + 20.0 * skill("vitality")
+		health += 20.0
+	return true
+
+
+func add_xp(amount: int) -> void:
+	if dead or amount <= 0:
+		return
+	xp += amount
+	if amount >= 4:
+		_game.xp_text(global_position + Vector2(0, -44), amount)
+	while xp >= Skills.xp_to_next(level):
+		xp -= Skills.xp_to_next(level)
+		level += 1
+		skill_points += 1
+		leveled_up.emit(level)
+
+
+# ---------------------------------------------------------------- input
 func _unhandled_input(event: InputEvent) -> void:
 	if dead or get_tree().paused:
 		return
@@ -109,7 +194,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		_use_held = true
 		_try_use(true)
 	elif event.is_action_pressed("alt_use"):
-		eat_best()
+		if placing:
+			cancel_placing()
+		else:
+			eat(best_food())
 	elif event.is_action_pressed("interact"):
 		_game.interact()
 	elif event is InputEventMouseButton and event.pressed:
@@ -117,7 +205,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			select(selected + 1)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			select(selected - 1)
-	for i in range(1, 8):
+	for i in range(1, SLOTS + 1):
 		if event.is_action_pressed("slot_%d" % i):
 			select(i - 1)
 
@@ -161,6 +249,8 @@ func _physics_process(delta: float) -> void:
 	if _use_held:
 		_try_use(false)
 	_hurt -= delta
+	if placing and count("campfire") <= 0:
+		placing = false
 	_update_stats(delta)
 	var dark: float = _game.darkness()
 	_self_light.energy = 0.4 * dark
@@ -173,25 +263,26 @@ func _physics_process(delta: float) -> void:
 
 func _update_stats(delta: float) -> void:
 	var diff := Settings.difficulty_mult()
-	hunger -= 0.17 * diff * delta * (1.4 if sprinting else 1.0)
+	hunger -= 0.17 * diff * delta * (1.4 if sprinting else 1.0) * (1.0 - 0.15 * skill("iron_stomach"))
 	var night: float = _game.darkness()
 	heat = _game.heat_at(global_position)
 	if heat > 0.0:
 		warmth += (4.0 + 10.0 * heat) * delta
 	else:
-		var drain := (0.28 + 0.9 * night) * diff
+		var drain := (0.28 + 0.9 * night) * diff * (1.0 - 0.15 * skill("thick_blood"))
 		if count("fur_cloak") > 0:
 			drain *= 0.5
 		if holding("torch"):
 			drain *= 0.65
 		warmth -= drain * delta
+	var endurance := skill("endurance")
 	if sprinting:
-		stamina -= 22.0 * delta
+		stamina -= 22.0 * (1.0 - 0.2 * endurance) * delta
 		if stamina <= 0:
 			stamina = 0
 			_exhausted = true
 	else:
-		stamina += (16.0 if velocity.length() < 10 else 11.0) * delta
+		stamina += (16.0 if velocity.length() < 10 else 11.0) * (1.0 + 0.25 * endurance) * delta
 		if stamina > 30:
 			_exhausted = false
 	if hunger <= 0:
@@ -203,7 +294,7 @@ func _update_stats(delta: float) -> void:
 	hunger = clampf(hunger, 0, 100)
 	warmth = clampf(warmth, 0, 100)
 	stamina = clampf(stamina, 0, 100)
-	health = clampf(health, 0, 100)
+	health = clampf(health, 0, max_health)
 	_starve_msg -= delta
 	if _starve_msg <= 0 and (hunger <= 0 or warmth <= 0):
 		_starve_msg = 12.0
@@ -219,6 +310,8 @@ func _drain_health(amount: float, cause: String) -> void:
 func take_damage(amount: float, cause: String, from := Vector2.INF) -> void:
 	if dead:
 		return
+	if cause == "wolves":
+		amount *= 1.0 - 0.2 * skill("wolfbane")
 	health -= amount
 	_hurt = 0.25
 	Audio.play("hurt", -2, 0.1)
@@ -236,21 +329,24 @@ func _die(cause: String) -> void:
 		return
 	dead = true
 	health = 0
+	placing = false
 	_use_held = false
 	_torch_light.visible = false
 	queue_redraw()
 	died.emit(cause)
 
 
-func eat_best() -> void:
-	var f := best_food()
-	if f == "":
+func eat(f: String) -> void:
+	if f == "" or count(f) <= 0:
 		_game.message("You have nothing to eat.", Color(1, 0.7, 0.5))
 		return
 	if _eat_cd > 0:
 		return
 	var d: Dictionary = Items.DATA[f]
-	if hunger >= 99.5 and d.heal <= 0:
+	var heal: float = d.heal
+	if heal < 0 and skill("iron_stomach") >= 2:
+		heal = 0.0
+	if hunger >= 99.5 and heal <= 0:
 		_game.message("You are not hungry.")
 		return
 	remove_item(f, 1)
@@ -258,28 +354,31 @@ func eat_best() -> void:
 	warmth = minf(100, warmth + d.warm)
 	_eat_cd = 0.5
 	Audio.play("eat", -3)
-	if d.heal < 0:
-		take_damage(-d.heal, "food poisoning")
+	if heal < 0:
+		take_damage(-heal, "food poisoning")
 		_game.message("Raw meat upsets your stomach. Cook it at a fire!", Color(1, 0.6, 0.5))
 	else:
-		health = minf(100, health + d.heal)
+		health = minf(max_health, health + heal)
 		_game.message("Ate %s" % Items.item_name(f))
 
 
 func _try_use(just_pressed: bool) -> void:
 	if _cooldown > 0 or dead:
 		return
-	var id: String = Items.HOTBAR[selected]
-	if id == "food":
+	var id := current_item()
+	if id == "":
 		if just_pressed:
-			eat_best()
+			_game.message("This slot is empty. Open your inventory (%s) to fill it." % Settings.key_name("inventory"))
 		return
 	if count(id) <= 0:
 		if just_pressed:
-			_game.message("You don't have a %s. Press %s to craft." % [Items.item_name(id), Settings.key_name("craft")])
+			_game.message("You have no %s left." % Items.item_name(id))
 		return
 	var d: Dictionary = Items.DATA[id]
 	match d.kind:
+		"food":
+			if just_pressed:
+				eat(id)
 		"melee", "light":
 			_cooldown = d.cooldown
 			_swing_dur = d.cooldown * 0.75
@@ -288,7 +387,15 @@ func _try_use(just_pressed: bool) -> void:
 			var origin := global_position + Vector2(0, -6)
 			var target: Node2D = _game.find_target(origin, aim, d.range)
 			if target:
-				target.hit(d.damage, id, self)
+				var dmg: float = d.damage
+				match target.get("kind"):
+					"tree":
+						dmg *= 1.0 + 0.25 * skill("lumberjack")
+					"rock":
+						dmg *= 1.0 + 0.25 * skill("stonebreaker")
+					"animal":
+						dmg *= 1.0 + 0.15 * skill("keen_edge")
+				target.hit(dmg, id, self)
 		"ranged":
 			if count("arrow") <= 0:
 				if just_pressed:
@@ -299,15 +406,13 @@ func _try_use(just_pressed: bool) -> void:
 			_swing = 1.0
 			_swing_dur = d.cooldown
 			Audio.play("bow", -2, 0.08)
-			_game.spawn_arrow(global_position + aim * 12, aim, d.damage, self)
+			_game.spawn_arrow(global_position + aim * 12, aim, d.damage * (1.0 + 0.2 * skill("marksman")), self)
 		"place":
 			if just_pressed:
-				var p := get_global_mouse_position()
-				if p.distance_to(global_position) > 140:
-					p = global_position + (p - global_position).limit_length(140)
-				if _game.place_campfire(p):
+				if _game.place_campfire(_game.placement_point()):
 					remove_item(id, 1)
 					_cooldown = 0.4
+					placing = false
 
 
 # ---------------------------------------------------------------- drawing
@@ -372,9 +477,7 @@ func _draw() -> void:
 
 
 func _draw_item(face: float) -> void:
-	var id: String = Items.HOTBAR[selected]
-	if id == "food":
-		id = best_food()
+	var id := current_item()
 	if id == "" or count(id) <= 0:
 		return
 	var shoulder := Vector2(0, -16)

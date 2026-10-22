@@ -51,7 +51,8 @@ func harvest() -> bool:
 	_regrow = 150.0
 	Audio.play_at("pickup", global_position, -4)
 	_game.snow_puff(global_position + Vector2(0, -10), 6)
-	for i in randi_range(2, 4):
+	_game.player.add_xp(Skills.XP.forage)
+	for i in randi_range(2, 4) + _game.bonus_drops():
 		_game.spawn_drop("berries", 1, global_position + Vector2(randf_range(-14, 14), randf_range(4, 12)), global_position)
 	queue_redraw()
 	return true

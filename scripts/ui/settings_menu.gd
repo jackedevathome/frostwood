@@ -165,7 +165,7 @@ func _build_controls() -> void:
 		b.pressed.connect(_start_rebind.bind(action))
 		h.add_child(b)
 		_bind_buttons[action] = b
-	var fixed := UITheme.label("Mouse: aim  •  Left click: use item  •  Right click: quick-eat\n1-7 / wheel: select item  •  Esc: pause", 16, UITheme.MUTED)
+	var fixed := UITheme.label("Mouse: aim  •  Left click: use item  •  Right click: quick-eat\n1-3 / wheel: select hotbar slot  •  Esc: pause", 16, UITheme.MUTED)
 	p.add_child(fixed)
 	var reset := UITheme.button("Reset to Defaults", 240)
 	reset.pressed.connect(func():

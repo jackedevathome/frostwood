@@ -521,26 +521,90 @@ def sfx_animal_die():
 
 
 def sfx_tree_fall():
-    d = 2.2
+    """Wood fibres creak and snap, branches whoosh down, then a heavy thud muffled by snow.
+    The impact lands at ~0.95 s to match the in-game falling animation."""
+    r = np.random.default_rng(77)
+    d = 2.8
     n = int(d * SR)
-    t = np.arange(n) / SR
-    # creak
-    cn = int(0.9 * SR)
-    ct = np.arange(cn) / SR
-    cf = 90 + 40 * ct
-    ph = 2 * np.pi * np.cumsum(cf) / SR
-    pulses = (np.sin(ph) > 0.97).astype(float)
-    creak = bandpass(pulses, 300, 2200) * np.sin(np.pi * ct / ct[-1])
     x = np.zeros(n)
-    x[:cn] += creak * 2
-    # crash + snow puff
-    p = int(1.0 * SR)
-    ln = n - p
-    crash = lowpass(noise(ln), 900) * exp_decay(ln, 0.25)
-    boom = np.sin(2 * np.pi * 55 * np.arange(ln) / SR) * exp_decay(ln, 0.2)
-    rustle = bandpass(noise(ln), 2000, 8000) * exp_decay(ln, 0.4) * 0.4
-    x[p:] += crash + boom + rustle
-    return fade(normalize(add_reverb(x, 0.25, 1.5, 0.5)[:n]))
+
+    # 1) creak: stick-slip friction. Irregular impulses excite wooden body resonances.
+    cn = int(0.95 * SR)
+    imp = np.zeros(cn)
+    tpos = 0.02
+    while tpos < 0.9:
+        rate = 18 + 30 * (tpos / 0.9) ** 1.5          # friction speeds up as the trunk gives way
+        tpos += (1.0 / rate) * r.uniform(0.6, 1.4)
+        i = int(tpos * SR)
+        if i < cn:
+            imp[i] += r.uniform(0.4, 1.0)
+    body = np.zeros(cn)
+    for f, q, g in ((340, 18, 1.0), (610, 14, 0.7), (1150, 10, 0.45), (2100, 8, 0.25)):
+        b, a = signal.iirpeak(f / (SR / 2), q)
+        body += signal.lfilter(b, a, imp) * g
+    ct = np.arange(cn) / SR
+    creak_env = np.clip(ct / 0.25, 0, 1) * (0.5 + 0.5 * ct / 0.95)
+    x[:cn] += normalize(lowpass(body, 2400, order=4)) * creak_env * 0.5
+    # a couple of sharp fibre snaps
+    for st in (0.62, 0.81, 0.9):
+        ln = int(0.03 * SR)
+        snap = highpass(r.uniform(-1, 1, ln), 1800) * exp_decay(ln, 0.006)
+        place(x, snap * 0.25, st, circular=False)
+
+    # 2) whoosh of the crown sweeping through the air, plus needle rustle
+    wn = int(0.55 * SR)
+    wt = np.arange(wn) / SR
+    w = r.uniform(-1, 1, wn)
+    sweep = np.zeros(wn)
+    for c in range(12):
+        a0, a1 = c * wn // 12, (c + 1) * wn // 12
+        fc = 350 + 1300 * (c / 11) ** 1.5
+        sweep[a0:a1] = bandpass(w, fc * 0.6, fc * 1.5)[a0:a1]
+    rustle = highpass(r.uniform(-1, 1, wn), 3500) * (r.uniform(0, 1, wn) > 0.985) * 3
+    whoosh = (sweep + rustle * 0.3) * (wt / wt[-1]) ** 2
+    place(x, normalize(whoosh) * 0.35, 0.42, circular=False)
+
+    # 3) impact into deep snow at 0.95 s
+    p0 = int(0.95 * SR)
+    ln = n - p0
+    it = np.arange(ln) / SR
+    f = 42 + 40 * np.exp(-it / 0.05)
+    thud = np.sin(2 * np.pi * np.cumsum(f) / SR) * exp_decay(ln, 0.28) * 0.5
+    poof = lowpass(r.uniform(-1, 1, ln), 450, order=4) * exp_decay(ln, 0.3) * 0.9
+    crunch = np.zeros(ln)
+    for _ in range(70):
+        q = int(abs(r.normal(0, 0.12)) * SR)
+        k = r.integers(40, 300)
+        if q + k < ln:
+            crunch[q:q + k] += r.uniform(-1, 1, k) * exp_decay(k, 0.002) * r.uniform(0.2, 1)
+    crunch = bandpass(crunch, 700, 3500) * 0.15
+    settle = bandpass(r.uniform(-1, 1, ln), 2500, 9000) * np.clip(it / 0.15, 0, 1) * exp_decay(ln, 0.5) * 0.04
+    x[p0:] += thud + poof + crunch + settle
+    return fade(normalize(add_reverb(x, 0.22, 1.6, 0.45)[:n], 0.9), 0.002, 0.2)
+
+
+def sfx_level_up():
+    x = np.zeros(int(2.2 * SR))
+    for k, nn in enumerate(("D4", "F4", "A4", "D5", "F5")):
+        place(x, karplus(note_hz(nn), 1.8, bright=0.6), k * 0.09, 0.5, circular=False)
+    tc = t_axis(1.6)
+    shimmer = sum(np.sin(2 * np.pi * f * tc) * a for f, a in ((1175, 0.5), (1760, 0.35), (2349, 0.2)))
+    shimmer *= env_adsr(len(tc), 0.25, 0.3, 0.6, 0.9)
+    place(x, shimmer * 0.25, 0.4, circular=False)
+    return fade(normalize(add_reverb(x, 0.35, 2.0, 0.6)[:len(x)], 0.75))
+
+
+def sfx_waypoint():
+    t = t_axis(0.5)
+    x = np.sin(2 * np.pi * 1320 * t) * exp_decay(len(t), 0.12) + 0.5 * np.sin(2 * np.pi * 1980 * t) * exp_decay(len(t), 0.08)
+    return fade(normalize(add_reverb(x, 0.3, 0.8, 0.25)[:len(t)], 0.5))
+
+
+def sfx_page():
+    n = int(0.25 * SR)
+    t = np.arange(n) / SR
+    x = bandpass(noise(n), 1500, 7000) * np.sin(np.pi * t / t[-1]) ** 3
+    return fade(normalize(x, 0.4))
 
 
 def sfx_place():
@@ -589,30 +653,37 @@ def sfx_ignite():
     return fade(normalize(whoosh + fire_loop()[:n] * 0.4))
 
 
-def main():
+SFX = {
+    "chop": sfx_chop, "mine": sfx_mine, "swing": sfx_swing, "bow": sfx_bow,
+    "arrow_hit": sfx_arrow_hit, "pickup": sfx_pickup, "eat": sfx_eat,
+    "craft": sfx_craft, "hurt": sfx_hurt, "howl": sfx_howl, "growl": sfx_growl,
+    "animal_die": sfx_animal_die, "tree_fall": sfx_tree_fall, "place": sfx_place,
+    "ui_hover": sfx_ui_hover, "ui_click": sfx_ui_click, "dawn": sfx_dawn,
+    "game_over": sfx_game_over, "ignite": sfx_ignite, "level_up": sfx_level_up,
+    "waypoint": sfx_waypoint, "page": sfx_page,
+}
+
+
+def main(only=None):
+    """Generate everything, or only the named sounds (e.g. `generate_audio.py tree_fall`)."""
     os.makedirs(OUT, exist_ok=True)
-    print("music...")
-    for k in ("menu", "day", "night"):
-        write_ogg("music_" + k, compose(k))
-    print("ambience...")
-    write_ogg("amb_wind", wind_loop())
-    write_ogg("amb_forest", forest_day_loop())
-    write_ogg("amb_fire", fire_loop())
+    if not only:
+        print("music...")
+        for k in ("menu", "day", "night"):
+            write_ogg("music_" + k, compose(k))
+        print("ambience...")
+        write_ogg("amb_wind", wind_loop())
+        write_ogg("amb_forest", forest_day_loop())
+        write_ogg("amb_fire", fire_loop())
+        for i in range(4):
+            write_wav("step%d" % i, sfx_step(100 + i))
     print("sfx...")
-    sfx = {
-        "chop": sfx_chop(), "mine": sfx_mine(), "swing": sfx_swing(), "bow": sfx_bow(),
-        "arrow_hit": sfx_arrow_hit(), "pickup": sfx_pickup(), "eat": sfx_eat(),
-        "craft": sfx_craft(), "hurt": sfx_hurt(), "howl": sfx_howl(), "growl": sfx_growl(),
-        "animal_die": sfx_animal_die(), "tree_fall": sfx_tree_fall(), "place": sfx_place(),
-        "ui_hover": sfx_ui_hover(), "ui_click": sfx_ui_click(), "dawn": sfx_dawn(),
-        "game_over": sfx_game_over(), "ignite": sfx_ignite(),
-    }
-    for i in range(4):
-        sfx["step%d" % i] = sfx_step(100 + i)
-    for k, v in sfx.items():
-        write_wav(k, v)
+    for k, fn in SFX.items():
+        if not only or k in only:
+            write_wav(k, fn())
     print("done ->", OUT)
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(sys.argv[1:])

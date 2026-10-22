@@ -15,7 +15,6 @@ const DATA := {
 		"desc": "Lights the dark, slows the cold and scares wolves away."},
 	"campfire": {"name": "Campfire", "kind": "place",
 		"desc": "Place with the mouse. Warmth, light, cooking and safety."},
-	"food": {"name": "Food", "kind": "food"},
 	"berries": {"name": "Lingonberries", "kind": "food", "hunger": 9.0, "heal": 2.0, "warm": 0.0},
 	"raw_meat": {"name": "Raw Meat", "kind": "food", "hunger": 12.0, "heal": -8.0, "warm": 0.0},
 	"cooked_meat": {"name": "Cooked Meat", "kind": "food", "hunger": 34.0, "heal": 12.0, "warm": 10.0},
@@ -26,8 +25,9 @@ const DATA := {
 	"fur_cloak": {"name": "Fur Cloak", "kind": "wear", "desc": "Halves the bite of the cold. Worn automatically."},
 }
 
-## Fixed hotbar layout. "food" always eats the best food you carry.
-const HOTBAR := ["axe", "pickaxe", "spear", "bow", "torch", "campfire", "food"]
+## Item kinds that can be put in one of the 3 hotbar slots and used with the mouse.
+const EQUIP_KINDS := ["melee", "ranged", "light", "place", "food"]
+const KIND_ORDER := ["melee", "ranged", "light", "place", "food", "ammo", "material", "wear"]
 const FOOD_PRIORITY := ["cooked_meat", "berries", "raw_meat"]
 const UNIQUE := ["spear", "bow", "torch", "fur_cloak"]
 
@@ -39,6 +39,40 @@ const RECIPES := [
 	{"id": "bow", "amount": 1, "cost": {"wood": 4, "hide": 1}},
 	{"id": "fur_cloak", "amount": 1, "cost": {"hide": 3}},
 ]
+
+
+static func is_equippable(id: String) -> bool:
+	return DATA.get(id, {}).get("kind", "") in EQUIP_KINDS
+
+
+static func sort_key(id: String) -> int:
+	return KIND_ORDER.find(DATA.get(id, {}).get("kind", "material")) * 100 + DATA.keys().find(id)
+
+
+static func describe(id: String) -> String:
+	var d: Dictionary = DATA.get(id, {})
+	var lines := []
+	if d.has("desc"):
+		lines.append(d.desc)
+	match d.get("kind", ""):
+		"melee", "light":
+			lines.append("Damage %d  •  Reach %d" % [d.damage, d.range])
+		"ranged":
+			lines.append("Damage %d  •  Uses arrows" % d.damage)
+		"food":
+			var fx := "Restores %d hunger" % d.hunger
+			if d.heal > 0:
+				fx += ", heals %d" % d.heal
+			elif d.heal < 0:
+				fx += ", but hurts %d unless cooked" % -d.heal
+			if d.warm > 0:
+				fx += ", warms %d" % d.warm
+			lines.append(fx + ".")
+		"material":
+			lines.append("Crafting material.")
+		"ammo":
+			lines.append("Ammunition for the bow.")
+	return "\n".join(lines)
 
 
 static func item_name(id: String) -> String:
@@ -137,5 +171,26 @@ static func draw_icon(ci: CanvasItem, id: String, c: Vector2, s: float, alpha :=
 				c + Vector2(0.75, 0.8) * s, c + Vector2(-0.75, 0.8) * s]), Color(0.5, 0.36, 0.24, alpha))
 			for i in 5:
 				ci.draw_circle(c + Vector2(-0.45 + i * 0.22, -0.6) * s, s * 0.18, Color(0.92, 0.9, 0.86, alpha))
+		"heart":
+			var col := Color(0.86, 0.22, 0.24, alpha)
+			ci.draw_circle(c + Vector2(-0.38, -0.22) * s, s * 0.45, col)
+			ci.draw_circle(c + Vector2(0.38, -0.22) * s, s * 0.45, col)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.8, -0.05) * s, c + Vector2(0.8, -0.05) * s, c + Vector2(0, 0.85) * s]), col)
+		"bolt":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0.2, -0.9) * s, c + Vector2(-0.5, 0.1) * s, c + Vector2(0, 0.1) * s,
+				c + Vector2(-0.2, 0.9) * s, c + Vector2(0.5, -0.1) * s, c + Vector2(0, -0.1) * s]), Color(0.95, 0.85, 0.3, alpha))
+		"flame":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.6, 0.6) * s, c + Vector2(-0.4, -0.2) * s, c + Vector2(0, -0.9) * s,
+				c + Vector2(0.4, -0.2) * s, c + Vector2(0.6, 0.6) * s]), Color(1.0, 0.5, 0.15, alpha))
+			ci.draw_circle(c + Vector2(0, 0.3) * s, s * 0.3, Color(1, 0.9, 0.5, alpha))
+		"snow":
+			for k in 3:
+				var d := Vector2.from_angle(PI * k / 3.0) * s * 0.85
+				ci.draw_line(c - d, c + d, Color(0.6, 0.85, 1.0, alpha), maxf(1.5, s * 0.15))
+		"paw":
+			var col := Color(0.55, 0.57, 0.62, alpha)
+			ci.draw_circle(c + Vector2(0, 0.3) * s, s * 0.4, col)
+			for v in [Vector2(-0.55, -0.25), Vector2(-0.2, -0.6), Vector2(0.2, -0.6), Vector2(0.55, -0.25)]:
+				ci.draw_circle(c + v * s, s * 0.18, col)
 		_:
 			ci.draw_circle(c, s * 0.5, Color(1, 0, 1, alpha))

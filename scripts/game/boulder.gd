@@ -65,9 +65,12 @@ func hit(damage: float, tool_id: String, _source: Node2D) -> void:
 	if dmg <= 0.0:
 		return
 	hp -= dmg
+	_game.player.add_xp(Skills.XP.mine)
 	_shake = 0.25
 	if hp <= 0:
-		var n := 2 + int(radius / 12.0)
+		_game.player.add_xp(Skills.XP["break"])
+		_game.world_map.clear_at(global_position, false)
+		var n: int = 2 + int(radius / 12.0) + _game.bonus_drops()
 		for i in n:
 			_game.spawn_drop("stone", 1, global_position + Vector2(randf_range(-20, 20), randf_range(-10, 10)), global_position)
 		_game.debris(global_position + Vector2(0, -radius * 0.4), Color(0.6, 0.62, 0.66), 16)
