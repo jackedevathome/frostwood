@@ -32,6 +32,13 @@ func _draw() -> void:
 
 	var center := r.get_center()
 	var to_mini := func(p: Vector2) -> Vector2: return center + (p - pp) * k
+	for g in ["cabins", "runes", "shelters"]:
+		for poi in get_tree().get_nodes_in_group(g):
+			var q: Vector2 = to_mini.call(poi.global_position)
+			if r.grow(-6).has_point(q) and map.explored(poi.global_position):
+				var icon: String = {"cabins": "cabin", "runes": "rune", "shelters": "shelter"}[g]
+				draw_circle(q, 7, Color(0.03, 0.04, 0.06, 0.7))
+				Items.draw_icon(self, icon, q, 6.0)
 	for f in get_tree().get_nodes_in_group("campfires"):
 		var q: Vector2 = to_mini.call(f.global_position)
 		if r.has_point(q):

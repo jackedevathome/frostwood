@@ -1,11 +1,18 @@
 class_name Animal
 extends CharacterBody2D
-## Wildlife: wolves (hunt the player, fear fire and torches), deer and hares (flee, drop meat and hide).
+## Wildlife: wolves (hunt the player, fear fire and torches), brown bears (territorial, very tough),
+## and deer, hares and foxes (flee, drop meat, hide and fur).
 
 const STATS := {
 	"wolf": {"hp": 45.0, "walk": 70.0, "run": 168.0, "radius": 11.0, "damage": 9.0},
 	"deer": {"hp": 32.0, "walk": 55.0, "run": 190.0, "radius": 13.0, "damage": 0.0},
 	"hare": {"hp": 10.0, "walk": 45.0, "run": 205.0, "radius": 7.0, "damage": 0.0},
+	"fox": {"hp": 14.0, "walk": 60.0, "run": 215.0, "radius": 8.0, "damage": 0.0},
+	"bear": {"hp": 220.0, "walk": 48.0, "run": 150.0, "radius": 17.0, "damage": 22.0},
+}
+const DROPS := {
+	"wolf": {"raw_meat": 1, "hide": 1}, "deer": {"raw_meat": 2, "hide": 1}, "hare": {"raw_meat": 1},
+	"fox": {"raw_meat": 1, "fox_fur": 1}, "bear": {"raw_meat": 4, "bear_pelt": 1, "hide": 1},
 }
 
 var kind := "animal"
@@ -29,6 +36,8 @@ var _stuck := 0.0
 var _growl_cd := 0.0
 var _orbit := 1.0
 var _moving := false
+var _home := Vector2.ZERO
+var _roar_cd := 0.0
 
 
 func setup(game: Node, sp: String) -> void:
@@ -48,6 +57,7 @@ func setup(game: Node, sp: String) -> void:
 	add_child(cs)
 	_dir = Vector2.from_angle(randf() * TAU)
 	_orbit = 1.0 if randf() < 0.5 else -1.0
+	_home = position
 	add_to_group("hittable")
 	add_to_group("animals")
 	add_to_group(sp)
@@ -63,10 +73,13 @@ func _physics_process(delta: float) -> void:
 	_fear -= delta
 	_flash -= delta
 	_growl_cd -= delta
+	_roar_cd -= delta
 
 	var desired := Vector2.ZERO
 	if species == "wolf":
 		desired = _wolf_ai(player, to_p, dist)
+	elif species == "bear":
+		desired = _bear_ai(player, to_p, dist)
 	else:
 		desired = _prey_ai(player, to_p, dist)
 
@@ -95,7 +108,7 @@ func _physics_process(delta: float) -> void:
 		_facing = signf(velocity.x)
 	if _moving:
 		_walk += delta * velocity.length() * 0.09
-	if dist > 1900:
+	if dist > (2600.0 if species == "bear" else 1900.0):
 		queue_free()
 	queue_redraw()
 
@@ -103,7 +116,7 @@ func _physics_process(delta: float) -> void:
 func _prey_ai(player: Node2D, to_p: Vector2, dist: float) -> Vector2:
 	if state == "dodge" and _timer > 0:
 		return _dir * _st.run
-	var flee_r := 200.0 if species == "deer" else 150.0
+	var flee_r: float = {"deer": 200.0, "fox": 180.0}.get(species, 150.0)
 	if player.get("sprinting"):
 		flee_r *= 1.5
 	if _fear > 0 or (dist < flee_r and not player.dead):
@@ -157,6 +170,47 @@ func _wolf_ai(player: Node2D, to_p: Vector2, dist: float) -> Vector2:
 	return to_p.normalized() * _st.run
 
 
+## Bears keep to their territory, charge anyone who comes too close and hit very hard.
+func _bear_ai(player: Node2D, to_p: Vector2, dist: float) -> Vector2:
+	if state == "dodge" and _timer > 0:
+		return _dir * _st.walk
+	var aggro := 300.0 if _game.is_night() else 220.0
+	if state == "chase":
+		aggro = 560.0
+	if hp < max_hp * 0.2:
+		state = "flee"
+		return -to_p.normalized() * _st.run * 0.8
+	var far_home := global_position.distance_to(_home) > 750.0
+	if player.dead or dist > aggro or (far_home and dist > 160.0):
+		state = "wander"
+		if far_home:
+			return (_home - global_position).normalized() * _st.walk
+		if _timer <= 0:
+			_timer = randf_range(3.0, 7.0)
+			_dir = Vector2.ZERO if randf() < 0.5 else Vector2.from_angle(randf() * TAU)
+		return _dir * _st.walk
+	var fire: Node2D = _game.fire_near(player.global_position, 20.0)
+	if fire:
+		state = "circle"
+		var from_fire: Vector2 = global_position - fire.global_position
+		var radial := from_fire.normalized() * clampf((210.0 - from_fire.length()) / 40.0, -1.0, 1.0)
+		return (radial + from_fire.normalized().orthogonal() * _orbit * 0.5).normalized() * _st.walk
+	if state != "chase" and _roar_cd <= 0:
+		_roar_cd = 9.0
+		Audio.play_at("bear_roar", global_position, 2, 0.05, 1800)
+		_game.shake(4.0)
+	state = "chase"
+	if _retreat > 0:
+		return -to_p.normalized() * _st.walk
+	if dist < 42 and _bite_cd <= 0:
+		_bite_cd = 1.9
+		_retreat = 0.45
+		Audio.play_at("bear_roar", global_position, -6, 0.15)
+		_game.player.take_damage(_st.damage * Settings.difficulty_mult(), "bear", global_position)
+		_game.player.velocity += to_p.normalized() * 220
+	return to_p.normalized() * _st.run
+
+
 func _bite() -> void:
 	_bite_cd = 1.4
 	_retreat = 0.55
@@ -175,7 +229,10 @@ func hit(damage: float, tool_id: String, source: Node2D) -> void:
 	Audio.play_at("arrow_hit", global_position, -6)
 	if tool_id == "torch":
 		_fear = 3.5
-	if species != "wolf":
+	if species == "bear":
+		state = "chase"
+		_home = global_position
+	elif species != "wolf":
 		_fear = 6.0
 	else:
 		_growl_cd = 0
@@ -186,15 +243,21 @@ func hit(damage: float, tool_id: String, source: Node2D) -> void:
 
 func _die() -> void:
 	Audio.play_at("animal_die", global_position, -2)
-	var drops: Dictionary = {"wolf": {"raw_meat": 1, "hide": 1}, "deer": {"raw_meat": 2, "hide": randi_range(1, 2)}, "hare": {"raw_meat": 1}}[species]
+	var drops: Dictionary = DROPS[species].duplicate()
+	if species == "deer" and randf() < 0.5:
+		drops.hide += 1
 	drops.raw_meat += _game.player.skill("butcher")
 	_game.player.add_xp(Skills.XP[species])
+	_game.track("kill_" + species)
 	for id in drops:
 		for i in drops[id]:
 			_game.spawn_drop(id, 1, global_position + Vector2(randf_range(-22, 22), randf_range(-8, 14)), global_position)
 	_game.blood(global_position, 18)
 	if species == "wolf":
 		_game.message("A wolf falls.")
+	elif species == "bear":
+		_game.message("The great bear falls. Its pelt will keep you warm.", UITheme.WARM)
+		_game.shake(6.0)
 	queue_free()
 
 
@@ -229,6 +292,10 @@ func _draw() -> void:
 			_draw_deer(tint)
 		"hare":
 			_draw_hare(tint)
+		"fox":
+			_draw_fox(tint)
+		"bear":
+			_draw_bear(tint)
 
 
 func _draw_wolf(tint: Color) -> void:
@@ -292,3 +359,48 @@ func _draw_hare(tint: Color) -> void:
 	_ell(o + Vector2(7, -18), 1.6, 6, shade, 0.15)
 	draw_circle(_p(o + Vector2(8, -11)), 1.1, Color(0.1, 0.1, 0.1))
 	_ell(o + Vector2(-8, -7), 2.5, 2.5, Color.WHITE * tint)
+
+
+func _draw_fox(tint: Color) -> void:
+	var fur := Color(0.86, 0.46, 0.18) * tint
+	var white := Color(0.96, 0.94, 0.9) * tint
+	var black := Color(0.15, 0.12, 0.1) * tint
+	for l in [[-7, 0.0], [-3, PI], [5, PI * 0.5], [8, PI * 1.5]]:
+		_leg(Vector2(l[0], -7), 7, l[1], black, 2.0)
+	var tw := sin(_walk * 0.6) * 2.0
+	_ell(Vector2(-15, -10 + tw), 8, 4, fur, -0.3)
+	_ell(Vector2(-21, -8 + tw), 3, 2.5, white)
+	_ell(Vector2(0, -10), 10, 5, fur)
+	_ell(Vector2(3, -7.5), 6, 2.2, white)
+	var h := Vector2(11, -14)
+	_ell(h, 5, 4.2, fur)
+	_ell(h + Vector2(4.5, 1.5), 3.5, 2, white)
+	draw_circle(_p(h + Vector2(7.5, 1.3)), 1.1, black)
+	draw_colored_polygon(PackedVector2Array([_p(h + Vector2(-3.5, -2)), _p(h + Vector2(-2.5, -8)), _p(h + Vector2(0, -3))]), fur)
+	draw_colored_polygon(PackedVector2Array([_p(h + Vector2(0, -3)), _p(h + Vector2(1.5, -8)), _p(h + Vector2(3, -2.5))]), fur)
+	draw_circle(_p(h + Vector2(2, -1)), 1.0, black)
+
+
+func _draw_bear(tint: Color) -> void:
+	var fur := Color(0.36, 0.24, 0.15) * tint
+	var dark := Color(0.24, 0.15, 0.09) * tint
+	var muzzle := Color(0.55, 0.4, 0.27) * tint
+	for l in [[-14, 0.0], [-7, PI], [9, PI * 0.5], [16, PI * 1.5]]:
+		_leg(Vector2(l[0], -12), 12, l[1], dark, 6.0)
+	_ell(Vector2(0, -20), 24, 13, fur)
+	_ell(Vector2(-4, -29), 14, 6, fur.lightened(0.06))
+	_ell(Vector2(-2, -13), 18, 5, dark)
+	var h := Vector2(22, -27)
+	if state == "chase" and _bite_cd > 1.4:
+		h += Vector2(4, 2)
+	_ell(h, 10, 9, fur)
+	_ell(h + Vector2(8, 3), 5.5, 4, muzzle)
+	draw_circle(_p(h + Vector2(13, 2)), 2.0, Color(0.08, 0.06, 0.05))
+	draw_circle(_p(h + Vector2(-5, -8)), 3.6, fur)
+	draw_circle(_p(h + Vector2(3, -9)), 3.6, fur)
+	draw_circle(_p(h + Vector2(-5, -8)), 1.8, dark)
+	draw_circle(_p(h + Vector2(3, -9)), 1.8, dark)
+	draw_circle(_p(h + Vector2(4, -2)), 1.4, Color(0.05, 0.04, 0.03))
+	if state == "chase":
+		# bared teeth when charging
+		draw_line(_p(h + Vector2(9, 6)), _p(h + Vector2(14, 5)), Color(0.95, 0.93, 0.85), 1.5)

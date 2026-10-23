@@ -5,6 +5,7 @@ const SFX_NAMES := [
 	"chop", "mine", "swing", "bow", "arrow_hit", "pickup", "eat", "craft", "hurt", "howl",
 	"growl", "animal_die", "tree_fall", "place", "ui_hover", "ui_click", "dawn", "game_over",
 	"ignite", "step0", "step1", "step2", "step3",
+	"level_up", "waypoint", "page", "bear_roar", "splash", "fish_bite", "chest_open", "rune", "goal",
 ]
 const LOOPS := ["music_menu", "music_day", "music_night", "amb_wind", "amb_forest", "amb_fire"]
 

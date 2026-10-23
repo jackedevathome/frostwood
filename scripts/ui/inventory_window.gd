@@ -193,12 +193,20 @@ func setup(g: Node) -> void:
 	h.add_child(right)
 	right.add_child(UITheme.heading("Crafting", 28))
 	right.add_child(UITheme.ornament(320))
+	var scroll := ScrollContainer.new()
+	scroll.custom_minimum_size = Vector2(344, 470)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	right.add_child(scroll)
 	_craft_rows = VBoxContainer.new()
 	_craft_rows.add_theme_constant_override("separation", 6)
-	right.add_child(_craft_rows)
+	scroll.add_child(_craft_rows)
 	for rec in Items.RECIPES:
 		var b := Button.new()
-		b.custom_minimum_size = Vector2(320, 54)
+		b.custom_minimum_size = Vector2(326, 52)
+		for st in ["normal", "hover", "pressed", "disabled"]:
+			var sb := UITheme.button_box(st)
+			sb.content_margin_left = 58
+			b.add_theme_stylebox_override(st, sb)
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.focus_mode = Control.FOCUS_NONE
 		b.set_meta("rec", rec)
@@ -250,13 +258,21 @@ func _refresh(force: bool) -> void:
 		s.queue_redraw()
 	for s in _hotbar_slots:
 		s.queue_redraw()
-	_worn.text = "Wearing: Fur Cloak" if player.count("fur_cloak") > 0 else ""
+	var worn := []
+	for w in ["bear_cloak", "fur_cloak", "fox_hat"]:
+		if player.count(w) > 0 and not (w == "fur_cloak" and player.count("bear_cloak") > 0):
+			worn.append(Items.item_name(w))
+	_worn.text = ("Wearing: " + ", ".join(worn)) if worn.size() > 0 else ""
 	for b in _craft_rows.get_children():
 		var rec: Dictionary = b.get_meta("rec")
 		var owned: bool = rec.id in Items.UNIQUE and player.count(rec.id) > 0
 		var amt := ("  x%d" % rec.amount) if rec.amount > 1 else ""
-		b.text = "          %s%s\n          %s" % [Items.item_name(rec.id), amt, "Owned" if owned else Items.cost_text(rec.cost)]
-		b.disabled = owned or not game.can_afford(rec.cost)
+		var cost := "Owned" if owned else Items.cost_text(rec.cost)
+		var fire_needed: bool = not owned and game.needs_fire(rec)
+		if fire_needed:
+			cost += "  ·  needs a campfire"
+		b.text = "%s%s\n%s" % [Items.item_name(rec.id), amt, cost]
+		b.disabled = owned or not game.can_afford(rec.cost) or fire_needed
 		b.tooltip_text = Items.DATA[rec.id].get("desc", "")
 
 
@@ -286,8 +302,8 @@ func _update_details() -> void:
 				_refresh(true))
 			_actions.add_child(b)
 	var kind: String = Items.DATA[id].kind
-	if kind == "food" or kind == "place":
-		var use := UITheme.button("Eat" if kind == "food" else "Place", 100)
+	if kind in ["food", "place", "consumable"]:
+		var use := UITheme.button({"food": "Eat", "place": "Place", "consumable": "Use"}[kind], 100)
 		use.custom_minimum_size.y = 36
 		use.add_theme_font_size_override("font_size", 16)
 		use.focus_mode = Control.FOCUS_NONE
@@ -301,9 +317,12 @@ func use_item(id: String) -> void:
 		"food":
 			player.eat(id)
 			_refresh(true)
+		"consumable":
+			player.consume(id)
+			_refresh(true)
 		"place":
 			game.hud.close_windows()
-			player.start_placing()
+			player.start_placing(id)
 
 
 func _draw_recipe_icon(b: Button) -> void:

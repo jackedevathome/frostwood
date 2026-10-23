@@ -7,6 +7,14 @@ var game: Node
 var player: Player
 var inventory: InventoryWindow
 var skills: SkillWindow
+var journal: JournalWindow
+var _status: Control
+var _lore: PanelContainer
+var _lore_title: Label
+var _lore_text: Label
+var _lore_foot: Label
+var _blizzard: TextureRect
+var _blizzard_tint: ColorRect
 var _root: Control
 var _stats: Control
 var _hotbar: Control
@@ -37,7 +45,15 @@ func setup(g: Node) -> void:
 	_cold_overlay = _vignette(Color(0.6, 0.85, 1.0))
 	_hurt_overlay = _vignette(Color(0.8, 0.05, 0.05))
 
+	_blizzard_tint = ColorRect.new()
+	_blizzard_tint.color = Color(0.85, 0.9, 0.97, 0.0)
+	_blizzard_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_blizzard_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_blizzard_tint)
+	_blizzard = _vignette(Color(0.92, 0.95, 1.0))
+
 	_stats = _draw_control(_draw_stats, Vector2(16, 16), Vector2(280, 168))
+	_status = _draw_control(_draw_status, Vector2(16, 192), Vector2(280, 90))
 
 	_minimap = Minimap.new()
 	_minimap.game = g
@@ -89,6 +105,10 @@ func setup(g: Node) -> void:
 	skills = SkillWindow.new()
 	skills.setup(g)
 	_root.add_child(skills)
+	journal = JournalWindow.new()
+	journal.setup(g)
+	_root.add_child(journal)
+	_build_lore()
 
 
 func _place(c: Control, anchor: Vector2, off: Vector2) -> void:
@@ -155,7 +175,8 @@ func _process(delta: float) -> void:
 	_fps.visible = Settings.show_fps
 	if _fps.visible:
 		_fps.text = "%d FPS" % Engine.get_frames_per_second()
-	_keys.text = "[%s] Inventory    [%s] Skills    [%s] Map" % [Settings.key_name("inventory"), Settings.key_name("skills"), Settings.key_name("map")]
+	_keys.text = "[%s] Inventory    [%s] Skills    [%s] Journal    [%s] Map" % [Settings.key_name("inventory"), Settings.key_name("skills"), Settings.key_name("journal"), Settings.key_name("map")]
+	_status.queue_redraw()
 	var cold := clampf(1.0 - player.warmth / 35.0, 0.0, 1.0)
 	_cold_overlay.modulate.a = lerpf(_cold_overlay.modulate.a, cold * 0.75, 1.0 - exp(-delta * 3))
 	_hurt = maxf(0.0, _hurt - delta * 2.0)
@@ -166,14 +187,15 @@ func _process(delta: float) -> void:
 
 # ---------------------------------------------------------------- windows
 func any_window_open() -> bool:
-	return inventory.visible or skills.visible
+	return inventory.visible or skills.visible or journal.visible or _lore.visible
 
 
 func toggle_window(which: String) -> void:
-	var w: Control = inventory if which != "skills" else skills
-	var other: Control = skills if w == inventory else inventory
+	var w: Control = {"skills": skills, "journal": journal}.get(which, inventory)
 	var opening := not w.visible
-	other.hide()
+	for other in [inventory, skills, journal, _lore]:
+		if other != w:
+			other.hide()
 	if opening:
 		w.open()
 		if which == "craft":
@@ -189,7 +211,87 @@ func close_windows() -> void:
 		Audio.play("page", -6)
 	inventory.hide()
 	skills.hide()
+	journal.hide()
+	_lore.hide()
 	game.restore_cursor()
+
+
+# ---------------------------------------------------------------- lore popup
+func _build_lore() -> void:
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(center)
+	_lore = PanelContainer.new()
+	_lore.custom_minimum_size = Vector2(560, 0)
+	_lore.hide()
+	center.add_child(_lore)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	_lore.add_child(v)
+	var rune_icon := Control.new()
+	rune_icon.custom_minimum_size = Vector2(0, 54)
+	rune_icon.draw.connect(func(): Items.draw_icon(rune_icon, "rune", Vector2(rune_icon.size.x / 2, 28), 24))
+	v.add_child(rune_icon)
+	_lore_title = UITheme.heading("", 30)
+	_lore_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_lore_title)
+	v.add_child(UITheme.ornament(320))
+	_lore_text = UITheme.label("", 21, UITheme.TEXT)
+	_lore_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_lore_text.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lore_text.custom_minimum_size.x = 500
+	v.add_child(_lore_text)
+	_lore_foot = UITheme.label("", 16, UITheme.MUTED)
+	_lore_foot.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	v.add_child(_lore_foot)
+	var close := UITheme.button("Close", 180)
+	close.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	close.pressed.connect(close_windows)
+	v.add_child(close)
+	Audio.hook_buttons(_lore)
+
+
+func show_lore(title: String, body: String, foot: String) -> void:
+	for w in [inventory, skills, journal]:
+		w.hide()
+	_lore_title.text = title
+	_lore_text.text = "\u201c" + body + "\u201d"
+	_lore_foot.text = foot
+	_lore.show()
+	Input.set_custom_mouse_cursor(null)
+
+
+func set_blizzard(a: float) -> void:
+	_blizzard.modulate.a = a * 0.9
+	_blizzard_tint.color.a = a * 0.16
+
+
+# ---------------------------------------------------------------- goal tracker + buffs
+func _draw_status(c: Control) -> void:
+	var y := 0.0
+	var g: Dictionary = game.next_goal()
+	if not g.is_empty():
+		var r := Rect2(0, 0, c.size.x, 46)
+		c.draw_style_box(hud_panel(), r)
+		text(c, Vector2(12, 18), "GOAL   [%s] Journal" % Settings.key_name("journal"), 12, UITheme.GOLD)
+		var prog := "" if g.target <= 1 else "  %d/%d" % [game.goal_progress(g), g.target]
+		text(c, Vector2(12, 37), g.text + prog, 15, UITheme.TEXT)
+		y = 52.0
+	var chips := []
+	for b in player.buffs:
+		chips.append(["flame" if b == "warm" else "heart", "%ds" % ceili(player.buffs[b]), Color(1.0, 0.6, 0.25) if b == "warm" else Color(0.5, 0.9, 0.55)])
+	if game.blizzard_active():
+		chips.append(["snow", "Blizzard", Color(0.7, 0.85, 1.0)])
+	var x := 0.0
+	for ch in chips:
+		var w := 30.0 + UITheme.font_bold().get_string_size(ch[1], HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x + 12
+		var r := Rect2(x, y, w, 28)
+		c.draw_style_box(hud_panel(), r)
+		c.draw_arc(r.position + Vector2(15, 14), 10, 0, TAU, 20, Color(ch[2], 0.6), 1.5, true)
+		Items.draw_icon(c, ch[0], r.position + Vector2(15, 14), 6.5)
+		text(c, r.position + Vector2(30, 19), ch[1], 14, ch[2])
+		x += w + 6
 
 
 func flash_damage() -> void:

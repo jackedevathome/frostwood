@@ -35,6 +35,7 @@ func _process(delta: float) -> void:
 				global_position = global_position.move_toward(player.global_position, delta * (420 - d * 3))
 				if d < 14:
 					player.add_item(item_id, amount)
+					_game.track("gather_" + item_id, amount)
 					Audio.play("pickup", -9, 0.15)
 					_game.message("+%d %s" % [amount, Items.item_name(item_id)])
 					queue_free()

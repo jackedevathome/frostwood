@@ -61,6 +61,7 @@ func show_death(cause: String, days: int, record: bool, lvl := 1) -> void:
 		"cold": "The cold took you.",
 		"starvation": "You starved in the wilderness.",
 		"wolves": "The wolves caught your scent.",
+		"bear": "A brown bear defended its ground.",
 		"food poisoning": "Raw meat was your undoing.",
 	}
 	_info.text = "%s\n\nYou survived %d day%s and reached level %d.%s" % [causes.get(cause, "The forest claimed you."), days, "" if days == 1 else "s", lvl,

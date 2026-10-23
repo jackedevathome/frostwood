@@ -653,6 +653,103 @@ def sfx_ignite():
     return fade(normalize(whoosh + fire_loop()[:n] * 0.4))
 
 
+def sfx_bear_roar():
+    """Deep, rough roar: a low glottal pulse train through shifting vocal-tract formants."""
+    r = np.random.default_rng(31)
+    d = 1.6
+    n = int(d * SR)
+    t = np.arange(n) / SR
+    f0 = np.interp(t, [0, 0.25, 1.0, 1.6], [70, 105, 90, 60]) * (1 + 0.04 * r.standard_normal(n).cumsum() / np.sqrt(n))
+    ph = 2 * np.pi * np.cumsum(f0) / SR
+    src = signal.sawtooth(ph) + 0.6 * lowpass(r.uniform(-1, 1, n), 1200)
+    src *= 1 + 0.5 * np.sin(2 * np.pi * 23 * t)  # rattle
+    x = np.zeros(n)
+    for f, q, g in ((380, 4, 1.0), (750, 5, 0.7), (1400, 6, 0.35), (2600, 6, 0.15)):
+        b, a = signal.iirpeak(f / (SR / 2), q)
+        x += signal.lfilter(b, a, src) * g
+    x *= env_adsr(n, 0.12, 0.2, 0.85, 0.6)
+    x += lowpass(r.uniform(-1, 1, n), 200) * env_adsr(n, 0.1, 0.2, 0.6, 0.5) * 0.6
+    return fade(normalize(add_reverb(x, 0.25, 1.4, 0.4)[:n], 0.9))
+
+
+def sfx_splash():
+    r = np.random.default_rng(5)
+    n = int(0.6 * SR)
+    t = np.arange(n) / SR
+    plop_f = 900 * np.exp(-t / 0.03) + 300
+    plop = np.sin(2 * np.pi * np.cumsum(plop_f) / SR) * exp_decay(n, 0.04)
+    spray = bandpass(r.uniform(-1, 1, n), 1500, 7000) * exp_decay(n, 0.12)
+    drips = np.zeros(n)
+    for k in range(8):
+        p = int(r.uniform(0.08, 0.5) * SR)
+        ln = int(0.03 * SR)
+        f = r.uniform(1200, 2400)
+        drips[p:p + ln] += np.sin(2 * np.pi * np.linspace(f, f * 1.6, ln) * np.arange(ln) / SR) * exp_decay(ln, 0.008) * 0.3
+    return fade(normalize(plop * 0.8 + spray * 0.6 + drips, 0.7))
+
+
+def sfx_fish_bite():
+    n = int(0.45 * SR)
+    t = np.arange(n) / SR
+    x = np.zeros(n)
+    for k, st in enumerate((0.0, 0.12)):
+        ln = int(0.12 * SR)
+        tt = np.arange(ln) / SR
+        f = 500 + 900 * np.exp(-tt / 0.02)
+        blip = np.sin(2 * np.pi * np.cumsum(f) / SR) * exp_decay(ln, 0.03)
+        place(x, blip, st, 0.8 if k == 0 else 0.6, circular=False)
+    tick = highpass(noise(n), 3000) * (np.sin(2 * np.pi * 30 * t) > 0.9) * exp_decay(n, 0.15) * 0.3
+    return fade(normalize(x + tick, 0.75))
+
+
+def sfx_chest_open():
+    r = np.random.default_rng(9)
+    n = int(1.2 * SR)
+    x = np.zeros(n)
+    # hinge creak
+    cn = int(0.45 * SR)
+    imp = np.zeros(cn)
+    tpos = 0.0
+    while tpos < 0.42:
+        tpos += r.uniform(0.012, 0.03)
+        i = int(tpos * SR)
+        if i < cn:
+            imp[i] = r.uniform(0.5, 1)
+    b, a = signal.iirpeak(900 / (SR / 2), 12)
+    x[:cn] += signal.lfilter(b, a, imp) * 3
+    # lid thump
+    tl = t_axis(0.25)
+    thump = np.sin(2 * np.pi * (120 + 80 * np.exp(-tl / 0.02)) * tl) * exp_decay(len(tl), 0.05)
+    place(x, thump, 0.45, 0.8, circular=False)
+    # little shimmer of found treasure
+    for k, f in enumerate((1318, 1760, 2093)):
+        tc = t_axis(0.5)
+        place(x, np.sin(2 * np.pi * f * tc) * exp_decay(len(tc), 0.15) * 0.25, 0.55 + k * 0.08, 1.0, circular=False)
+    return fade(normalize(add_reverb(x, 0.25, 1.0, 0.3)[:n], 0.75))
+
+
+def sfx_rune():
+    n = int(3.0 * SR)
+    x = np.zeros(n)
+    for k, (nn, st) in enumerate((("D5", 0.0), ("A5", 0.15), ("D6", 0.3), ("E6", 0.5))):
+        tc = t_axis(2.4)
+        f = note_hz(nn)
+        tone = (np.sin(2 * np.pi * f * tc) + 0.3 * np.sin(2 * np.pi * f * 2.76 * tc) * exp_decay(len(tc), 0.3)) * exp_decay(len(tc), 0.9)
+        place(x, tone * 0.4, st, 1.0, circular=False)
+    t = np.arange(n) / SR
+    drone = (np.sin(2 * np.pi * note_hz("D3") * t) + 0.5 * np.sin(2 * np.pi * note_hz("A3") * t)) * env_adsr(n, 0.6, 0.5, 0.5, 1.5) * 0.25
+    return fade(normalize(add_reverb(x + drone, 0.5, 3.0, 1.0)[:n], 0.7))
+
+
+def sfx_goal():
+    x = np.zeros(int(1.6 * SR))
+    place(x, horn(note_hz("A3"), 0.5), 0.0, 0.5, circular=False)
+    place(x, horn(note_hz("D4"), 0.9), 0.22, 0.55, circular=False)
+    for k, nn in enumerate(("D5", "F5", "A5")):
+        place(x, karplus(note_hz(nn), 1.0, bright=0.6), 0.22 + k * 0.06, 0.3, circular=False)
+    return fade(normalize(add_reverb(x, 0.35, 1.8, 0.6)[:len(x)], 0.7))
+
+
 SFX = {
     "chop": sfx_chop, "mine": sfx_mine, "swing": sfx_swing, "bow": sfx_bow,
     "arrow_hit": sfx_arrow_hit, "pickup": sfx_pickup, "eat": sfx_eat,
@@ -661,6 +758,8 @@ SFX = {
     "ui_hover": sfx_ui_hover, "ui_click": sfx_ui_click, "dawn": sfx_dawn,
     "game_over": sfx_game_over, "ignite": sfx_ignite, "level_up": sfx_level_up,
     "waypoint": sfx_waypoint, "page": sfx_page,
+    "bear_roar": sfx_bear_roar, "splash": sfx_splash, "fish_bite": sfx_fish_bite,
+    "chest_open": sfx_chest_open, "rune": sfx_rune, "goal": sfx_goal,
 }
 
 

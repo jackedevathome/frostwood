@@ -3,6 +3,8 @@ extends StaticBody2D
 ## Snow-capped granite boulder. Mine it with the pickaxe for stone.
 
 var kind := "rock"
+var ore := false  # iron ore vein (set before setup)
+var _spots: Array = []
 var hp := 45.0
 var radius := 20.0
 var _poly := PackedVector2Array()
@@ -41,6 +43,9 @@ func setup(game: Node, sc: float) -> void:
 		_snow.append(_poly[i] + Vector2(0, 1))
 	_snow.append(_poly[6] * 0.7 + Vector2(0, 4))
 	_snow.append(_poly[2] * 0.7 + Vector2(0, 4))
+	if ore:
+		for k in 6:
+			_spots.append([Vector2(r.randf_range(-0.7, 0.7) * radius, -r.randf_range(0.15, 0.7) * radius), r.randf_range(1.6, 3.2)])
 	add_to_group("hittable")
 
 
@@ -52,6 +57,9 @@ func _draw() -> void:
 	draw_colored_polygon(_poly, Color(0.42, 0.45, 0.5))
 	if _light.size() >= 3:
 		draw_colored_polygon(_light, Color(0.55, 0.58, 0.63))
+	for sp in _spots:
+		draw_circle(sp[0], sp[1], Color(0.72, 0.38, 0.18))
+		draw_circle(sp[0] + Vector2(-0.6, -0.6), sp[1] * 0.45, Color(0.9, 0.55, 0.3))
 	draw_colored_polygon(_snow, Color(0.92, 0.95, 0.99))
 	draw_line(_poly[3] * 0.5, _poly[5] * 0.4 + Vector2(0, 4), Color(0.3, 0.32, 0.36), 1.5)
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
@@ -71,6 +79,11 @@ func hit(damage: float, tool_id: String, _source: Node2D) -> void:
 		_game.player.add_xp(Skills.XP["break"])
 		_game.world_map.clear_at(global_position, false)
 		var n: int = 2 + int(radius / 12.0) + _game.bonus_drops()
+		if ore:
+			var ores: int = 2 + (1 if randf() < 0.4 else 0) + _game.bonus_drops()
+			for i in ores:
+				_game.spawn_drop("iron_ore", 1, global_position + Vector2(randf_range(-20, 20), randf_range(-10, 10)), global_position)
+			n = 1
 		for i in n:
 			_game.spawn_drop("stone", 1, global_position + Vector2(randf_range(-20, 20), randf_range(-10, 10)), global_position)
 		_game.debris(global_position + Vector2(0, -radius * 0.4), Color(0.6, 0.62, 0.66), 16)

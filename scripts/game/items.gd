@@ -22,22 +22,55 @@ const DATA := {
 	"stone": {"name": "Stone", "kind": "material"},
 	"hide": {"name": "Hide", "kind": "material"},
 	"arrow": {"name": "Arrows", "kind": "ammo"},
-	"fur_cloak": {"name": "Fur Cloak", "kind": "wear", "desc": "Halves the bite of the cold. Worn automatically."},
+	"fur_cloak": {"name": "Fur Cloak", "kind": "wear", "cold": 0.5, "desc": "Halves the bite of the cold. Worn automatically."},
+	# --- content update
+	"iron_axe": {"name": "Iron Axe", "kind": "melee", "damage": 15.0, "tree": 2.1, "rock": 0.4, "range": 64.0, "cooldown": 0.38,
+		"desc": "A forged iron head bites deep. Fells trees in half the swings."},
+	"iron_pickaxe": {"name": "Iron Pickaxe", "kind": "melee", "damage": 12.0, "tree": 0.3, "rock": 2.4, "range": 62.0, "cooldown": 0.44,
+		"desc": "Cracks boulders and ore veins with ease."},
+	"fishing_rod": {"name": "Fishing Rod", "kind": "rod",
+		"desc": "Use it on a frozen lake. When the bobber dips and you see \"!\", click to reel in."},
+	"shelter": {"name": "Shelter", "kind": "place",
+		"desc": "A hide lavvu tent. Place it near a campfire, then press E at night to sleep until dawn."},
+	"raw_fish": {"name": "Raw Fish", "kind": "food", "hunger": 9.0, "heal": -5.0, "warm": 0.0},
+	"cooked_fish": {"name": "Grilled Fish", "kind": "food", "hunger": 26.0, "heal": 14.0, "warm": 8.0},
+	"spruce_tea": {"name": "Spruce-tip Tea", "kind": "consumable", "buff": "warm", "time": 120.0, "warm": 35.0,
+		"desc": "Hot tea brewed from spruce tips. Keeps the cold away for two minutes."},
+	"bandage": {"name": "Birch Bandage", "kind": "consumable", "buff": "regen", "time": 10.0,
+		"desc": "Hide and birch bark. Heals 35 health over 10 seconds."},
+	"birch_bark": {"name": "Birch Bark", "kind": "material"},
+	"spruce_tips": {"name": "Spruce Tips", "kind": "material"},
+	"iron_ore": {"name": "Iron Ore", "kind": "material"},
+	"bear_pelt": {"name": "Bear Pelt", "kind": "material"},
+	"fox_fur": {"name": "Fox Fur", "kind": "material"},
+	"bear_cloak": {"name": "Bear Pelt Cloak", "kind": "wear", "cold": 0.35, "desc": "Heavy and warm. The cold barely reaches you."},
+	"fox_hat": {"name": "Fox Fur Hat", "kind": "wear", "cold": 0.85, "desc": "Keeps your ears warm: 15% less cold. Stacks with a cloak."},
 }
 
 ## Item kinds that can be put in one of the 3 hotbar slots and used with the mouse.
-const EQUIP_KINDS := ["melee", "ranged", "light", "place", "food"]
-const KIND_ORDER := ["melee", "ranged", "light", "place", "food", "ammo", "material", "wear"]
-const FOOD_PRIORITY := ["cooked_meat", "berries", "raw_meat"]
-const UNIQUE := ["spear", "bow", "torch", "fur_cloak"]
+const EQUIP_KINDS := ["melee", "ranged", "light", "rod", "place", "food", "consumable"]
+const KIND_ORDER := ["melee", "ranged", "light", "rod", "place", "food", "consumable", "ammo", "material", "wear"]
+const FOOD_PRIORITY := ["cooked_meat", "cooked_fish", "berries", "raw_fish", "raw_meat"]
+const UNIQUE := ["spear", "bow", "torch", "fur_cloak", "iron_axe", "iron_pickaxe", "fishing_rod", "bear_cloak", "fox_hat"]
+## Raw food that a campfire turns into cooked food.
+const COOKS := {"raw_meat": "cooked_meat", "raw_fish": "cooked_fish"}
 
+## "fire": true means you must stand near a burning campfire to craft it.
 const RECIPES := [
 	{"id": "arrow", "amount": 4, "cost": {"wood": 1, "stone": 1}},
 	{"id": "torch", "amount": 1, "cost": {"wood": 2}},
 	{"id": "campfire", "amount": 1, "cost": {"wood": 5, "stone": 3}},
 	{"id": "spear", "amount": 1, "cost": {"wood": 3, "stone": 2}},
 	{"id": "bow", "amount": 1, "cost": {"wood": 4, "hide": 1}},
+	{"id": "fishing_rod", "amount": 1, "cost": {"wood": 2, "birch_bark": 2}},
+	{"id": "bandage", "amount": 2, "cost": {"birch_bark": 1, "hide": 1}},
+	{"id": "spruce_tea", "amount": 1, "cost": {"spruce_tips": 2}, "fire": true},
 	{"id": "fur_cloak", "amount": 1, "cost": {"hide": 3}},
+	{"id": "fox_hat", "amount": 1, "cost": {"fox_fur": 2}},
+	{"id": "shelter", "amount": 1, "cost": {"wood": 10, "hide": 2, "birch_bark": 3}},
+	{"id": "iron_axe", "amount": 1, "cost": {"wood": 2, "iron_ore": 3}, "fire": true},
+	{"id": "iron_pickaxe", "amount": 1, "cost": {"wood": 2, "iron_ore": 3}, "fire": true},
+	{"id": "bear_cloak", "amount": 1, "cost": {"bear_pelt": 1, "hide": 2}},
 ]
 
 
@@ -70,6 +103,8 @@ static func describe(id: String) -> String:
 			lines.append(fx + ".")
 		"material":
 			lines.append("Crafting material.")
+		"consumable":
+			lines.append("Use it from the hotbar or inventory.")
 		"ammo":
 			lines.append("Ammunition for the bow.")
 	return "\n".join(lines)
@@ -171,6 +206,100 @@ static func draw_icon(ci: CanvasItem, id: String, c: Vector2, s: float, alpha :=
 				c + Vector2(0.75, 0.8) * s, c + Vector2(-0.75, 0.8) * s]), Color(0.5, 0.36, 0.24, alpha))
 			for i in 5:
 				ci.draw_circle(c + Vector2(-0.45 + i * 0.22, -0.6) * s, s * 0.18, Color(0.92, 0.9, 0.86, alpha))
+		"iron_axe":
+			ci.draw_line(c + Vector2(-0.6, 0.75) * s, c + Vector2(0.45, -0.6) * s, dark_wood, s * 0.18)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0.05, -0.85) * s, c + Vector2(0.85, -0.6) * s,
+				c + Vector2(0.75, 0.15) * s, c + Vector2(0.25, -0.3) * s]), Color(0.5, 0.53, 0.58, alpha))
+			ci.draw_line(c + Vector2(0.85, -0.6) * s, c + Vector2(0.75, 0.15) * s, Color(0.85, 0.88, 0.92, alpha), s * 0.1)
+			ci.draw_circle(c + Vector2(0.3, -0.45) * s, s * 0.08, Color(0.3, 0.3, 0.33, alpha))
+		"iron_pickaxe":
+			ci.draw_line(c + Vector2(-0.6, 0.75) * s, c + Vector2(0.35, -0.45) * s, dark_wood, s * 0.18)
+			var pts := PackedVector2Array()
+			for i in 9:
+				var a := lerpf(-2.7, 0.0, i / 8.0)
+				pts.append(c + Vector2(0.15, -0.15) * s + Vector2(cos(a), sin(a)) * s * 0.82)
+			ci.draw_polyline(pts, Color(0.48, 0.5, 0.56, alpha), s * 0.24, true)
+			ci.draw_polyline(pts, Color(0.75, 0.78, 0.82, alpha), s * 0.07, true)
+		"fishing_rod":
+			var rp := PackedVector2Array()
+			for i in 9:
+				var t := i / 8.0
+				rp.append(c + Vector2(lerpf(-0.75, 0.7, t), lerpf(0.8, -0.8, t) + sin(t * PI) * -0.1) * s)
+			ci.draw_polyline(rp, wood, maxf(1.5, s * 0.1), true)
+			ci.draw_line(rp[rp.size() - 1], c + Vector2(0.75, 0.35) * s, Color(0.9, 0.9, 0.9, alpha * 0.8), 1.0)
+			ci.draw_circle(c + Vector2(0.75, 0.42) * s, s * 0.14, Color(0.9, 0.2, 0.2, alpha))
+			ci.draw_circle(c + Vector2(-0.45, 0.45) * s, s * 0.14, Color(0.5, 0.52, 0.56, alpha))
+		"shelter":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.85, 0.7) * s, c + Vector2(0.2, -0.75) * s, c + Vector2(0.85, 0.7) * s]), Color(0.6, 0.45, 0.3, alpha))
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.3, 0.7) * s, c + Vector2(0.2, -0.1) * s, c + Vector2(0.55, 0.7) * s]), Color(0.2, 0.15, 0.12, alpha))
+			ci.draw_line(c + Vector2(0.2, -0.75) * s, c + Vector2(0.4, -0.95) * s, dark_wood, s * 0.1)
+			ci.draw_line(c + Vector2(0.2, -0.75) * s, c + Vector2(0.0, -0.95) * s, dark_wood, s * 0.1)
+		"raw_fish", "cooked_fish":
+			var col := Color(0.6, 0.66, 0.72, alpha) if id == "raw_fish" else Color(0.72, 0.5, 0.28, alpha)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.75, 0) * s, c + Vector2(-0.3, -0.4) * s, c + Vector2(0.4, -0.35) * s,
+				c + Vector2(0.6, 0) * s, c + Vector2(0.4, 0.35) * s, c + Vector2(-0.3, 0.4) * s]), col)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(0.5, 0) * s, c + Vector2(0.95, -0.4) * s, c + Vector2(0.95, 0.4) * s]), col.darkened(0.15))
+			ci.draw_circle(c + Vector2(-0.48, -0.08) * s, s * 0.08, Color(0.1, 0.1, 0.1, alpha))
+			if id == "cooked_fish":
+				for k in 3:
+					ci.draw_line(c + Vector2(-0.2 + k * 0.25, -0.3) * s, c + Vector2(-0.3 + k * 0.25, 0.3) * s, Color(0.4, 0.22, 0.1, alpha), 1.5)
+		"spruce_tea":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.5, -0.2) * s, c + Vector2(0.5, -0.2) * s, c + Vector2(0.4, 0.75) * s, c + Vector2(-0.4, 0.75) * s]), Color(0.55, 0.38, 0.24, alpha))
+			ci.draw_arc(c + Vector2(0.55, 0.2) * s, s * 0.2, -PI * 0.5, PI * 0.5, 8, Color(0.55, 0.38, 0.24, alpha), maxf(1.5, s * 0.1))
+			ci.draw_rect(Rect2(c + Vector2(-0.45, -0.2) * s, Vector2(0.9, 0.18) * s), Color(0.45, 0.6, 0.3, alpha))
+			for k in 2:
+				ci.draw_arc(c + Vector2(-0.15 + k * 0.3, -0.55) * s, s * 0.15, PI * 0.5, PI * 1.5, 6, Color(0.9, 0.9, 0.9, alpha * 0.6), 1.2)
+		"bandage":
+			ci.draw_circle(c, s * 0.62, Color(0.9, 0.86, 0.78, alpha))
+			ci.draw_arc(c, s * 0.35, 0, TAU, 14, Color(0.75, 0.7, 0.6, alpha), 1.5)
+			ci.draw_rect(Rect2(c + Vector2(-0.1, -0.35) * s, Vector2(0.2, 0.7) * s), Color(0.8, 0.2, 0.2, alpha))
+			ci.draw_rect(Rect2(c + Vector2(-0.35, -0.1) * s, Vector2(0.7, 0.2) * s), Color(0.8, 0.2, 0.2, alpha))
+		"birch_bark":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.7, -0.5) * s, c + Vector2(0.7, -0.6) * s, c + Vector2(0.75, 0.5) * s, c + Vector2(-0.65, 0.6) * s]), Color(0.93, 0.92, 0.88, alpha))
+			for v in [Vector2(-0.4, -0.2), Vector2(0.2, 0.1), Vector2(-0.1, 0.35), Vector2(0.4, -0.35)]:
+				ci.draw_line(c + v * s, c + (v + Vector2(0.25, 0)) * s, Color(0.15, 0.13, 0.12, alpha), maxf(1.0, s * 0.08))
+			ci.draw_arc(c + Vector2(0.72, 0) * s, s * 0.2, -PI * 0.5, PI * 0.5, 8, Color(0.7, 0.6, 0.5, alpha), 1.5)
+		"spruce_tips":
+			ci.draw_line(c + Vector2(-0.6, 0.7) * s, c + Vector2(0.5, -0.6) * s, Color(0.4, 0.3, 0.2, alpha), maxf(1.0, s * 0.08))
+			for k in 6:
+				var b := c + Vector2(-0.45 + k * 0.18, 0.5 - k * 0.2) * s
+				ci.draw_line(b, b + Vector2(-0.35, -0.12) * s, Color(0.45, 0.72, 0.35, alpha), maxf(1.0, s * 0.1))
+				ci.draw_line(b, b + Vector2(0.12, 0.3) * s, Color(0.45, 0.72, 0.35, alpha), maxf(1.0, s * 0.1))
+		"iron_ore":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.75, 0.45) * s, c + Vector2(-0.5, -0.4) * s,
+				c + Vector2(0.15, -0.65) * s, c + Vector2(0.7, -0.15) * s, c + Vector2(0.7, 0.55) * s]), Color(0.36, 0.33, 0.33, alpha))
+			for v in [Vector2(-0.3, 0.0), Vector2(0.2, -0.3), Vector2(0.35, 0.25), Vector2(-0.1, 0.35)]:
+				ci.draw_circle(c + v * s, s * 0.12, Color(0.75, 0.4, 0.2, alpha))
+		"bear_pelt", "fox_fur":
+			var col := Color(0.38, 0.25, 0.15, alpha) if id == "bear_pelt" else Color(0.88, 0.48, 0.2, alpha)
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.85, -0.6) * s, c + Vector2(-0.3, -0.75) * s,
+				c + Vector2(0.3, -0.65) * s, c + Vector2(0.85, -0.75) * s, c + Vector2(0.6, 0.0) * s, c + Vector2(0.85, 0.75) * s,
+				c + Vector2(0.0, 0.55) * s, c + Vector2(-0.85, 0.75) * s, c + Vector2(-0.6, 0.0) * s]), col)
+			if id == "fox_fur":
+				ci.draw_circle(c + Vector2(0, 0.1) * s, s * 0.22, Color(0.95, 0.93, 0.9, alpha))
+			else:
+				ci.draw_circle(c + Vector2(0, 0) * s, s * 0.25, col.lightened(0.15))
+		"bear_cloak":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.4, -0.6) * s, c + Vector2(0.4, -0.6) * s,
+				c + Vector2(0.8, 0.8) * s, c + Vector2(-0.8, 0.8) * s]), Color(0.36, 0.24, 0.15, alpha))
+			for i in 5:
+				ci.draw_circle(c + Vector2(-0.45 + i * 0.22, -0.6) * s, s * 0.2, Color(0.28, 0.18, 0.11, alpha))
+		"fox_hat":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.7, 0.3) * s, c + Vector2(-0.55, -0.4) * s, c + Vector2(0, -0.65) * s,
+				c + Vector2(0.55, -0.4) * s, c + Vector2(0.7, 0.3) * s]), Color(0.88, 0.48, 0.2, alpha))
+			ci.draw_rect(Rect2(c + Vector2(-0.75, 0.2) * s, Vector2(1.5, 0.3) * s), Color(0.95, 0.93, 0.9, alpha))
+			ci.draw_line(c + Vector2(0.5, -0.2) * s, c + Vector2(0.95, 0.6) * s, Color(0.88, 0.48, 0.2, alpha), s * 0.25)
+			ci.draw_circle(c + Vector2(0.95, 0.65) * s, s * 0.14, Color(0.95, 0.93, 0.9, alpha))
+		"rune":
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.45, 0.8) * s, c + Vector2(-0.5, -0.5) * s, c + Vector2(0, -0.9) * s,
+				c + Vector2(0.5, -0.5) * s, c + Vector2(0.45, 0.8) * s]), Color(0.5, 0.53, 0.58, alpha))
+			ci.draw_line(c + Vector2(-0.1, -0.45) * s, c + Vector2(-0.1, 0.5) * s, Color(0.55, 0.85, 1.0, alpha), maxf(1.0, s * 0.1))
+			ci.draw_line(c + Vector2(-0.1, -0.45) * s, c + Vector2(0.2, -0.15) * s, Color(0.55, 0.85, 1.0, alpha), maxf(1.0, s * 0.1))
+			ci.draw_line(c + Vector2(0.2, -0.15) * s, c + Vector2(-0.1, 0.1) * s, Color(0.55, 0.85, 1.0, alpha), maxf(1.0, s * 0.1))
+		"cabin":
+			ci.draw_rect(Rect2(c + Vector2(-0.7, -0.1) * s, Vector2(1.4, 0.85) * s), Color(0.5, 0.33, 0.2, alpha))
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-0.9, -0.05) * s, c + Vector2(0, -0.85) * s, c + Vector2(0.9, -0.05) * s]), Color(0.88, 0.92, 0.97, alpha))
+			ci.draw_rect(Rect2(c + Vector2(-0.15, 0.25) * s, Vector2(0.3, 0.5) * s), Color(0.25, 0.16, 0.1, alpha))
 		"heart":
 			var col := Color(0.86, 0.22, 0.24, alpha)
 			ci.draw_circle(c + Vector2(-0.38, -0.22) * s, s * 0.45, col)

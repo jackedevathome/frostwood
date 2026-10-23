@@ -42,7 +42,8 @@ const DATA := {
 ## XP rewards.
 const XP := {
 	"chop": 1, "fell": 6, "mine": 1, "break": 5, "forage": 2, "craft": 4, "cook": 2, "build": 3, "dawn": 40,
-	"hare": 5, "deer": 12, "wolf": 25,
+	"hare": 5, "deer": 12, "wolf": 25, "fox": 7, "bear": 70,
+	"fish": 6, "rune": 30, "cabin": 15,
 }
 
 

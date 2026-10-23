@@ -21,7 +21,11 @@ var aim := Vector2.RIGHT
 var sprinting := false
 var dead := false
 var heat := 0.0
-var placing := false  # campfire placement mode
+var placing := ""  # id of the structure being placed ("" = not placing)
+var buffs := {}  # buff name -> seconds left
+var fishing := ""  # "", "waiting" or "bite"
+var _bobber := Vector2.ZERO
+var _fish_t := 0.0
 
 var level := 1
 var xp := 0
@@ -73,8 +77,8 @@ func setup(game: Node) -> void:
 # ---------------------------------------------------------------- inventory & hotbar
 ## The item currently in hand ("" for an empty slot).
 func current_item() -> String:
-	if placing:
-		return "campfire"
+	if placing != "":
+		return placing
 	return hotbar[selected]
 
 
@@ -129,7 +133,7 @@ func auto_equip(id: String) -> bool:
 
 
 func select(i: int) -> void:
-	placing = false
+	placing = ""
 	i = posmod(i, SLOTS)
 	if i == selected:
 		return
@@ -137,17 +141,47 @@ func select(i: int) -> void:
 	Audio.play("ui_hover", -6, 0.1)
 
 
-func start_placing() -> void:
-	if count("campfire") <= 0:
+func start_placing(id := "campfire") -> void:
+	if count(id) <= 0:
 		return
-	placing = true
-	_game.message("Place the campfire: Left click to build, Right click to cancel.", UITheme.WARM)
+	placing = id
+	_game.message("Place the %s: Left click to build, Right click to cancel." % Items.item_name(id).to_lower(), UITheme.WARM)
 
 
 func cancel_placing() -> void:
-	if placing:
-		placing = false
-		_game.message("Placement cancelled. The campfire is in your inventory.")
+	if placing != "":
+		_game.message("Placement cancelled. The %s is in your inventory." % Items.item_name(placing).to_lower())
+		placing = ""
+
+
+## How much of the cold gets through your clothing (1.0 = none blocked).
+func cold_mult() -> float:
+	var m := 1.0
+	for cloak in ["bear_cloak", "fur_cloak"]:
+		if count(cloak) > 0:
+			m = Items.DATA[cloak].cold
+			break
+	if count("fox_hat") > 0:
+		m *= Items.DATA.fox_hat.cold
+	return m
+
+
+func consume(id: String) -> void:
+	if count(id) <= 0 or _eat_cd > 0:
+		return
+	var d: Dictionary = Items.DATA[id]
+	remove_item(id, 1)
+	_eat_cd = 0.5
+	match d.buff:
+		"warm":
+			warmth = minf(100, warmth + d.warm)
+			buffs["warm"] = d.time
+			Audio.play("eat", -4)
+			_game.message("The tea warms you to the bone.", UITheme.WARM)
+		"regen":
+			buffs["regen"] = d.time
+			Audio.play("craft", -8)
+			_game.message("You bind your wounds.", Color(0.7, 1.0, 0.7))
 
 
 # ---------------------------------------------------------------- xp & skills
@@ -193,6 +227,7 @@ func to_dict() -> Dictionary:
 		"health": health, "max_health": max_health, "hunger": hunger, "warmth": warmth, "stamina": stamina,
 		"inventory": inventory.duplicate(), "hotbar": Array(hotbar), "selected": selected,
 		"level": level, "xp": xp, "skill_points": skill_points, "skills": skills.duplicate(),
+		"buffs": buffs.duplicate(),
 	}
 
 
@@ -216,6 +251,10 @@ func from_dict(d: Dictionary) -> void:
 	level = int(d.get("level", 1))
 	xp = int(d.get("xp", 0))
 	skill_points = int(d.get("skill_points", 0))
+	buffs.clear()
+	var bf: Dictionary = d.get("buffs", {})
+	for k in bf:
+		buffs[k] = float(bf[k])
 	skills.clear()
 	var sk: Dictionary = d.get("skills", {})
 	for k in sk:
@@ -286,8 +325,9 @@ func _physics_process(delta: float) -> void:
 	if _use_held:
 		_try_use(false)
 	_hurt -= delta
-	if placing and count("campfire") <= 0:
-		placing = false
+	if placing != "" and count(placing) <= 0:
+		placing = ""
+	_update_fishing(delta)
 	_update_stats(delta)
 	var dark: float = _game.darkness()
 	_self_light.energy = 0.4 * dark
@@ -306,12 +346,19 @@ func _update_stats(delta: float) -> void:
 	if heat > 0.0:
 		warmth += (4.0 + 10.0 * heat) * delta
 	else:
-		var drain := (0.28 + 0.9 * night) * diff * (1.0 - 0.15 * skill("thick_blood"))
-		if count("fur_cloak") > 0:
-			drain *= 0.5
+		var drain := (0.28 + 0.9 * night) * diff * (1.0 - 0.15 * skill("thick_blood")) * cold_mult()
+		drain *= _game.weather_cold_mult()
 		if holding("torch"):
 			drain *= 0.65
+		if buffs.has("warm"):
+			drain = -1.5
 		warmth -= drain * delta
+	for b in buffs.keys():
+		buffs[b] -= delta
+		if b == "regen":
+			health += 3.5 * delta
+		if buffs[b] <= 0:
+			buffs.erase(b)
 	var endurance := skill("endurance")
 	if sprinting:
 		stamina -= 22.0 * (1.0 - 0.2 * endurance) * delta
@@ -366,7 +413,8 @@ func _die(cause: String) -> void:
 		return
 	dead = true
 	health = 0
-	placing = false
+	placing = ""
+	fishing = ""
 	_use_held = false
 	_torch_light.visible = false
 	queue_redraw()
@@ -444,12 +492,65 @@ func _try_use(just_pressed: bool) -> void:
 			_swing_dur = d.cooldown
 			Audio.play("bow", -2, 0.08)
 			_game.spawn_arrow(global_position + aim * 12, aim, d.damage * (1.0 + 0.2 * skill("marksman")), self)
+		"consumable":
+			if just_pressed:
+				consume(id)
+		"rod":
+			if just_pressed:
+				_use_rod()
 		"place":
 			if just_pressed:
-				if _game.place_campfire(_game.placement_point()):
+				if _game.place_structure(id, _game.placement_point()):
 					remove_item(id, 1)
 					_cooldown = 0.4
-					placing = false
+					placing = ""
+
+
+# ---------------------------------------------------------------- ice fishing
+func _use_rod() -> void:
+	match fishing:
+		"":
+			var p := get_global_mouse_position()
+			if p.distance_to(global_position) > 150:
+				p = global_position + (p - global_position).limit_length(150)
+			if not _game.on_ice(p):
+				_game.message("Cast your line onto a frozen lake.", Color(0.7, 0.85, 1.0))
+				return
+			fishing = "waiting"
+			_bobber = p
+			_fish_t = randf_range(2.5, 7.0)
+			_swing = 1.0
+			_swing_dur = 0.4
+			Audio.play_at("splash", p, -4)
+		"waiting":
+			fishing = ""
+			_game.message("You pulled the line too early.")
+		"bite":
+			fishing = ""
+			var n := 2 if randf() < 0.2 else 1
+			_game.spawn_drop("raw_fish", n, global_position + Vector2(randf_range(-10, 10), 6), _bobber)
+			Audio.play_at("splash", _bobber, 0)
+			add_xp(6)
+			_game.track("fish", n)
+			_game.message("You caught %s!" % ("two fish" if n == 2 else "a fish"), UITheme.ACCENT)
+	_cooldown = 0.3
+
+
+func _update_fishing(delta: float) -> void:
+	if fishing == "":
+		return
+	if current_item() != "fishing_rod" or velocity.length() > 40 or global_position.distance_to(_bobber) > 200:
+		fishing = ""
+		return
+	_fish_t -= delta
+	if _fish_t <= 0:
+		if fishing == "waiting":
+			fishing = "bite"
+			_fish_t = 0.9
+			Audio.play_at("fish_bite", _bobber, 0)
+		else:
+			fishing = ""
+			_game.message("The fish got away...")
 
 
 # ---------------------------------------------------------------- drawing
@@ -490,7 +591,7 @@ func _draw() -> void:
 		draw_circle(foot + Vector2(face * 1.0, 0), 3, Color(0.2, 0.14, 0.1) * tint)
 
 	# tunic: forest-green wool, tapered body with a woven hem band
-	var cloak := count("fur_cloak") > 0
+	var cloak := count("fur_cloak") > 0 or count("bear_cloak") > 0
 	var tunic := Color(0.24, 0.37, 0.3) * tint
 	var tunic_dark := Color(0.18, 0.28, 0.23) * tint
 	var body := PackedVector2Array([Vector2(-5, body_y - 10), Vector2(5, body_y - 10), Vector2(9, body_y - 6),
@@ -507,12 +608,12 @@ func _draw() -> void:
 	draw_line(Vector2(back * 6, body_y + 1), Vector2(back * 7.5, body_y + 7), Color(0.25, 0.17, 0.1) * tint, 2.5)
 	# grey wolf-pelt cloak over the shoulders
 	if cloak:
-		var pelt := Color(0.5, 0.51, 0.54) * tint
+		var pelt := (Color(0.38, 0.26, 0.17) if count("bear_cloak") > 0 else Color(0.5, 0.51, 0.54)) * tint
 		draw_colored_polygon(PackedVector2Array([Vector2(-9, body_y - 10), Vector2(9, body_y - 10), Vector2(12.5, body_y - 2),
 			Vector2(0, body_y + 1), Vector2(-12.5, body_y - 2)]), pelt)
 		draw_line(Vector2(back * 10, body_y - 4), Vector2(back * 12, body_y + 7), pelt, 4)
 		for i in 6:
-			draw_circle(Vector2(-9 + i * 3.6, body_y - 8.5), 2.4, Color(0.4, 0.41, 0.44) * tint)
+			draw_circle(Vector2(-9 + i * 3.6, body_y - 8.5), 2.4, pelt.darkened(0.2))
 
 	# head: auburn hair and short braided beard, dark knitted cap
 	var head := Vector2(0, body_y - 15)
@@ -529,14 +630,25 @@ func _draw() -> void:
 		draw_circle(head + Vector2(2.5, -1) + look, 1.1, Color(0.12, 0.16, 0.22))
 		draw_line(head + Vector2(-4, -3) + look, head + Vector2(-1.3, -3.4) + look, hair, 1.2)
 		draw_line(head + Vector2(1.3, -3.4) + look, head + Vector2(4, -3) + look, hair, 1.2)
-	var cap := Color(0.23, 0.29, 0.38) * tint
-	draw_colored_polygon(PackedVector2Array([head + Vector2(-7.8, -2), head + Vector2(-6.5, -7.5), head + Vector2(-2.5, -10.2),
-		head + Vector2(2.5, -10.2), head + Vector2(6.5, -7.5), head + Vector2(7.8, -2)]), cap)
-	# the cap slouches towards the back
-	draw_colored_polygon(PackedVector2Array([head + Vector2(back * 1, -10.2), head + Vector2(back * 9, -9), head + Vector2(back * 6, -5)]), cap.darkened(0.15))
-	draw_rect(Rect2(head.x - 7.9, head.y - 4.5, 15.8, 2.5), Color(0.34, 0.42, 0.52) * tint)
-	for i in 4:
-		draw_circle(Vector2(head.x - 5.5 + i * 3.7, head.y - 3.2), 0.8, Color(0.75, 0.62, 0.35) * tint)
+	if count("fox_hat") > 0:
+		# fox fur hat with a white band and the tail hanging down the back
+		var fox := Color(0.86, 0.47, 0.2) * tint
+		draw_line(head + Vector2(back * 5, -6), head + Vector2(back * 10, 4), fox, 4)
+		draw_circle(head + Vector2(back * 10, 5), 2.3, Color(0.95, 0.93, 0.9) * tint)
+		draw_colored_polygon(PackedVector2Array([head + Vector2(-8, -2), head + Vector2(-7, -8), head + Vector2(-3, -11),
+			head + Vector2(3, -11), head + Vector2(7, -8), head + Vector2(8, -2)]), fox)
+		draw_rect(Rect2(head.x - 8.3, head.y - 4.8, 16.6, 3.2), Color(0.95, 0.93, 0.9) * tint)
+	else:
+		var cap := Color(0.23, 0.29, 0.38) * tint
+		draw_colored_polygon(PackedVector2Array([head + Vector2(-7.8, -2), head + Vector2(-6.5, -7.5), head + Vector2(-2.5, -10.2),
+			head + Vector2(2.5, -10.2), head + Vector2(6.5, -7.5), head + Vector2(7.8, -2)]), cap)
+		# the cap slouches towards the back
+		draw_colored_polygon(PackedVector2Array([head + Vector2(back * 1, -10.2), head + Vector2(back * 9, -9), head + Vector2(back * 6, -5)]), cap.darkened(0.15))
+		draw_rect(Rect2(head.x - 7.9, head.y - 4.5, 15.8, 2.5), Color(0.34, 0.42, 0.52) * tint)
+		for i in 4:
+			draw_circle(Vector2(head.x - 5.5 + i * 3.7, head.y - 3.2), 0.8, Color(0.75, 0.62, 0.35) * tint)
+	if fishing == "bite":
+		HUD.text(self, head + Vector2(-10, -16), "!", 22, Color(1.0, 0.85, 0.3), HORIZONTAL_ALIGNMENT_CENTER, 20)
 
 	if not behind and not dead:
 		_draw_item(face)
@@ -550,6 +662,29 @@ func _draw_item(face: float) -> void:
 	var shoulder := Vector2(0, -16)
 	var ang := aim.angle()
 	var kind: String = Items.DATA[id].kind
+	if kind == "rod":
+		var hand := shoulder + aim * 11
+		draw_line(shoulder, hand, Color(0.2, 0.32, 0.26), 4)
+		var flick := -sin(_swing * PI) * 0.6
+		var tip := hand + aim.rotated(-0.9 * face + flick) * 26
+		draw_line(hand, tip, Color(0.55, 0.36, 0.2), 2.0)
+		draw_circle(hand, 3, Color(0.93, 0.78, 0.65))
+		if fishing != "":
+			var b := _bobber - global_position
+			var dip := 3.0 if fishing == "bite" and int(Time.get_ticks_msec() / 120) % 2 == 0 else 0.0
+			draw_set_transform(b + Vector2(0, 2), 0, Vector2(1, 0.45))
+			draw_circle(Vector2.ZERO, 7, Color(0.08, 0.14, 0.2, 0.85))
+			draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
+			var mid := (tip + b) / 2 + Vector2(0, 14)
+			draw_polyline(PackedVector2Array([tip, mid, b + Vector2(0, dip - 3)]), Color(0.92, 0.92, 0.92, 0.8), 1.0, true)
+			draw_circle(b + Vector2(0, dip - 3), 3, Color(0.9, 0.2, 0.2))
+			draw_circle(b + Vector2(0, dip - 4.5), 1.6, Color(1, 1, 1))
+		return
+	if kind == "consumable":
+		var hand := shoulder + aim * 12
+		draw_line(shoulder, hand, Color(0.2, 0.32, 0.26), 4)
+		Items.draw_icon(self, id, hand, 8.0)
+		return
 	if kind == "ranged":
 		var pull := _swing * 6.0
 		var hand := shoulder + aim * 13

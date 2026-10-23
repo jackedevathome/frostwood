@@ -58,8 +58,13 @@ func build(lakes: Array, nodes: Array) -> void:
 					_px(x, y, Color(0.95, 0.97, 1.0))
 	for n in nodes:
 		match n.get("kind"):
+			"cabin":
+				var c := to_map(n.global_position)
+				for y in range(int(c.y - 6), int(c.y + 1)):
+					for x in range(int(c.x - 8), int(c.x + 9)):
+						_px(x, y, Color(0.45, 0.32, 0.22))
 			"tree":
-				var col := Color(0.11, 0.3, 0.27) if n.species == "spruce" else Color(0.2, 0.36, 0.2)
+				var col: Color = {"spruce": Color(0.11, 0.3, 0.27), "pine": Color(0.2, 0.36, 0.2), "birch": Color(0.78, 0.78, 0.74)}[n.species]
 				_dot(to_map(n.global_position), 2.2 * n.scale_f, col)
 			"rock":
 				_dot(to_map(n.global_position), 1.6, Color(0.5, 0.52, 0.56))

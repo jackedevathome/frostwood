@@ -256,9 +256,9 @@ static func button(text: String, min_width := 260) -> Button:
 
 static func controls_text() -> String:
 	var k := func(a): return Settings.key_name(a)
-	return "[b]Move[/b]  %s %s %s %s   (or arrow keys)\n[b]Sprint[/b]  %s\n[b]Aim[/b]  Mouse\n[b]Use item / attack / chop / shoot[/b]  Left Mouse\n[b]Quick-eat best food[/b]  Right Mouse\n[b]Select hotbar slot[/b]  1 - 3 or Mouse Wheel\n[b]Interact[/b] (cook meat, fuel fire, pick berries)  %s\n[b]Inventory[/b]  %s   [b]Crafting[/b]  %s\n[b]Skill tree[/b]  %s   [b]World map[/b]  %s\n[b]Pause[/b]  Esc" % [
+	return "[b]Move[/b]  %s %s %s %s   (or arrow keys)\n[b]Sprint[/b]  %s\n[b]Aim[/b]  Mouse\n[b]Use item / attack / chop / shoot[/b]  Left Mouse\n[b]Quick-eat best food[/b]  Right Mouse\n[b]Select hotbar slot[/b]  1 - 3 or Mouse Wheel\n[b]Interact[/b] (cook meat, fuel fire, pick berries)  %s\n[b]Inventory[/b]  %s   [b]Crafting[/b]  %s\n[b]Skill tree[/b]  %s   [b]World map[/b]  %s   [b]Journal[/b]  %s\n[b]Pause[/b]  Esc" % [
 		k.call("move_up"), k.call("move_left"), k.call("move_down"), k.call("move_right"),
-		k.call("sprint"), k.call("interact"), k.call("inventory"), k.call("craft"), k.call("skills"), k.call("map")]
+		k.call("sprint"), k.call("interact"), k.call("inventory"), k.call("craft"), k.call("skills"), k.call("map"), k.call("journal")]
 
 
 static func how_to_play_text() -> String:
@@ -269,5 +269,8 @@ static func how_to_play_text() -> String:
 		"[b]Gather[/b] wood by chopping pines and spruces with the axe, and stone by breaking boulders with the pickaxe. Then open the crafting menu to make arrows, torches, campfires, weapons and a fur cloak.\n\n" + \
 		"[b]Inventory[/b] holds everything you carry. Drag items onto your 3 hotbar slots (or hover an item and press 1-3).\n\n" + \
 		"[b]Experience[/b] comes from gathering, hunting, crafting and surviving nights. Each level gives a skill point to spend in the skill tree.\n\n" + \
+		"[b]Explore[/b] to find rune stones with old lore, abandoned cabins with supplies, birch groves (bark for bandages and rods) and red-veined iron ore. Beware the brown bears.\n\n" + \
+		"[b]Ice fishing:[/b] cast your rod onto a frozen lake and click when the \"!\" appears. [b]Shelters[/b] let you sleep through the night beside a fire. Watch out for [b]blizzards[/b].\n\n" + \
+		"[b]The journal[/b] lists goals that reward XP.\n\n" + \
 		"[b]The map[/b] reveals the forest as you explore. Click on it to place waypoints; they show on the minimap and as flags in the world.\n\n" + \
 		"[color=#f8b862][b]Controls[/b][/color]\n" + controls_text()

@@ -20,6 +20,7 @@ const KEY_ACTIONS := {
 	"craft": KEY_C,
 	"skills": KEY_K,
 	"map": KEY_M,
+	"journal": KEY_J,
 }
 const ACTION_LABELS := {
 	"move_up": "Move Up",
@@ -32,6 +33,7 @@ const ACTION_LABELS := {
 	"craft": "Crafting",
 	"skills": "Skill Tree",
 	"map": "World Map",
+	"journal": "Journal",
 }
 
 var master_volume := 0.8

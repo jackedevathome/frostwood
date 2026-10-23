@@ -37,6 +37,13 @@ var world_seed := 0
 var play_time := 0.0
 var _by_uid := {}  # generation index -> tree / rock / bush node
 var _next_uid := 0
+var stats := {}  # event counters for the journal
+var goals_done: Array = []
+var _blizzard_t := 0.0
+var _blizzard_cd := 200.0
+var _blizzard_amt := 0.0
+var _blizzard_fx: CPUParticles2D
+var _ghost_id := "campfire"
 
 
 static func light_texture() -> Texture2D:
@@ -100,6 +107,7 @@ func _ready() -> void:
 	camera.make_current()
 
 	_gen_world()
+	_gen_pois()
 	world_map = WorldMap.new(WORLD_HALF)
 	world_map.build(lakes, entities.get_children())
 	world_map.reveal(player.global_position)
@@ -183,6 +191,10 @@ func _gen_world() -> void:
 	spec.frequency = 0.0009
 	var grid := {}
 	var cell := 48.0
+	# birches grow in their own patches (separate noise, so older worlds keep the same layout)
+	var birch := FastNoiseLite.new()
+	birch.seed = world_seed + 7
+	birch.frequency = 0.0022
 
 	var occupied := func(p: Vector2, min_d: float) -> bool:
 		var k := Vector2i(floori(p.x / cell), floori(p.y / cell))
@@ -211,7 +223,10 @@ func _gen_world() -> void:
 			continue
 		mark.call(p)
 		var sp := "spruce" if spec.get_noise_2dv(p) + _rng.randf_range(-0.25, 0.25) > -0.1 else "pine"
-		_add_tree(p, sp, _rng.randf_range(0.8, 1.25))
+		var sc := _rng.randf_range(0.8, 1.25)
+		if birch.get_noise_2dv(p) > 0.22 and posmod(hash(Vector2i(p)), 100) < 70:
+			sp = "birch"
+		_add_tree(p, sp, sc)
 		count += 1
 		if count > 950:
 			break
@@ -234,6 +249,7 @@ func _gen_world() -> void:
 		mark.call(p)
 		var b := Boulder.new()
 		b.position = p
+		b.ore = p.length() > 700 and posmod(hash(Vector2i(p)), 100) < 30
 		b.setup(self, _rng.randf_range(0.8, 1.4))
 		_register(b)
 		entities.add_child(b)
@@ -269,6 +285,55 @@ func _gen_world() -> void:
 	for i in 10:
 		_spawn_animal("hare", 300, 2200)
 	_spawn_animal("wolf", 1300, 2200)
+	for i in 3:
+		_spawn_animal("fox", 500, 2200)
+	for i in 2:
+		_spawn_animal("bear", 1300, 2300)
+
+
+## Rune stones and abandoned cabins, placed with their own RNG so they don't disturb the forest layout.
+func _gen_pois() -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = world_seed ^ 0x5F3759DF
+	var spots: Array = []
+	var place := func(count: int, min_center: float, min_gap: float) -> Array:
+		var out := []
+		var tries := 0
+		while out.size() < count and tries < 400:
+			tries += 1
+			var p := Vector2(r.randf_range(-WORLD_HALF + 220, WORLD_HALF - 220), r.randf_range(-WORLD_HALF + 220, WORLD_HALF - 220))
+			if p.length() < min_center or _in_lake(p, 1.5):
+				continue
+			var ok := true
+			for q in spots:
+				if q.distance_to(p) < min_gap:
+					ok = false
+			if ok:
+				out.append(p)
+				spots.append(p)
+		return out
+	var cabins: Array = place.call(4, 700.0, 900.0)
+	var runes: Array = place.call(RuneStone.LORE.size(), 450.0, 600.0)
+	for i in cabins.size():
+		_clear_area(cabins[i] + Vector2(10, -10), 125.0)
+		var c := Cabin.new()
+		c.position = cabins[i]
+		c.setup(i)
+		entities.add_child(c)
+	for i in runes.size():
+		_clear_area(runes[i], 45.0)
+		var rs := RuneStone.new()
+		rs.position = runes[i]
+		rs.setup(i)
+		entities.add_child(rs)
+
+
+func _clear_area(c: Vector2, radius: float) -> void:
+	for uid in _by_uid.keys():
+		var n: Node2D = _by_uid[uid]
+		if n.global_position.distance_to(c) < radius:
+			_by_uid.erase(uid)
+			n.free()
 
 
 func _register(n: Node) -> void:
@@ -347,8 +412,9 @@ func _make_ghost() -> void:
 	_ghost.z_index = 5
 	_ghost.draw.connect(func():
 		var col := Color(0.6, 1.0, 0.6, 0.5) if _ghost_ok else Color(1.0, 0.4, 0.4, 0.5)
-		_ghost.draw_arc(Vector2.ZERO, 22, 0, TAU, 24, col, 2.0)
-		Items.draw_icon(_ghost, "campfire", Vector2(0, -8), 16, 0.6))
+		var rad := 22.0 if _ghost_id == "campfire" else 38.0
+		_ghost.draw_arc(Vector2.ZERO, rad, 0, TAU, 32, col, 2.0)
+		Items.draw_icon(_ghost, _ghost_id, Vector2(0, -8), 16 if _ghost_id == "campfire" else 28, 0.6))
 	add_child(_ghost)
 
 
@@ -364,6 +430,7 @@ func _process(delta: float) -> void:
 		message("Dawn breaks. You survived the night!", UITheme.WARM)
 		if day > 1:
 			player.add_xp(Skills.XP.dawn)
+		track("dawn")
 		save_game(false)
 		message("Game autosaved.", UITheme.MUTED)
 	var n := is_night()
@@ -398,6 +465,7 @@ func _process(delta: float) -> void:
 		camera.offset = Vector2.ZERO
 
 	_snow.global_position = camera.get_screen_center_position() + Vector2(-120, -420)
+	_update_weather(delta)
 
 	_reveal_t -= delta
 	if _reveal_t <= 0:
@@ -405,12 +473,14 @@ func _process(delta: float) -> void:
 		world_map.reveal(player.global_position)
 	camera.reset_smoothing()
 
-	var show_ghost := player.holding("campfire") and not player.dead and not hud.any_window_open()
+	var held := player.current_item()
+	var show_ghost: bool = held != "" and Items.DATA[held].kind == "place" and player.count(held) > 0 and not player.dead and not hud.any_window_open()
+	_ghost_id = held if show_ghost else _ghost_id
 	_ghost.visible = show_ghost
 	if show_ghost:
 		var p := placement_point()
 		_ghost.global_position = p
-		_ghost_ok = _can_place(p)
+		_ghost_ok = _can_place(p, _ghost_id)
 		_ghost.queue_redraw()
 
 
@@ -433,6 +503,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("skills"):
 		hud.toggle_window("skills")
+		get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("journal"):
+		hud.toggle_window("journal")
 		get_viewport().set_input_as_handled()
 	elif event.is_action_pressed("map"):
 		hud.close_windows()
@@ -476,6 +549,7 @@ func _apply_lighting() -> void:
 	var col := night_col.lerp(day_col, light)
 	var dusk := clampf(1.0 - absf(_sun()) / 0.32, 0.0, 1.0)
 	col = col.lerp(Color(1.0, 0.68, 0.5) * maxf(light, 0.45), dusk * 0.35)
+	col = col.lerp(Color(0.72, 0.76, 0.84) * maxf(light, 0.35), _blizzard_amt * 0.45)
 	col.a = 1.0
 	_canvas_mod.color = col
 
@@ -494,9 +568,12 @@ func _manage_population() -> void:
 			if w.global_position.distance_to(player.global_position) > 900:
 				w.queue_free()
 				break
-	var prey := get_tree().get_nodes_in_group("deer").size() + get_tree().get_nodes_in_group("hare").size()
-	if prey < 16:
-		_spawn_animal("deer" if randf() < 0.45 else "hare", 900, 1500)
+	var prey := get_tree().get_nodes_in_group("deer").size() + get_tree().get_nodes_in_group("hare").size() + get_tree().get_nodes_in_group("fox").size()
+	if prey < 18:
+		var roll := randf()
+		_spawn_animal("deer" if roll < 0.4 else ("fox" if roll < 0.58 else "hare"), 900, 1500)
+	if get_tree().get_nodes_in_group("bear").size() < 2 and randf() < 0.05:
+		_spawn_animal("bear", 1300, 1800)
 
 
 func _spawn_animal(sp: String, min_d: float, max_d: float) -> void:
@@ -606,14 +683,45 @@ func _nearest(group: String, p: Vector2, max_d: float) -> Node2D:
 	return best
 
 
+func _raw_count() -> int:
+	var n := 0
+	for raw in Items.COOKS:
+		n += player.count(raw)
+	return n
+
+
+func _near_chest() -> Node2D:
+	for c in get_tree().get_nodes_in_group("cabins"):
+		if not c.looted and c.chest_position().distance_to(player.global_position) < 60:
+			return c
+	return null
+
+
 func interact() -> void:
+	var chest := _near_chest()
+	if chest:
+		_loot_cabin(chest)
+		return
+	var rune := _nearest("runes", player.global_position, 70)
+	if rune:
+		read_rune(rune)
+		return
+	var shelter := _nearest("shelters", player.global_position, 70)
+	if shelter:
+		_try_sleep(shelter)
+		return
 	var fire := _nearest("campfires", player.global_position, 75)
 	if fire:
-		if player.count("raw_meat") > 0 and fire.burning:
-			var n := player.count("raw_meat")
-			player.remove_item("raw_meat", n)
-			player.add_item("cooked_meat", n)
+		if _raw_count() > 0 and fire.burning:
+			var n := 0
+			for raw in Items.COOKS:
+				var k := player.count(raw)
+				if k > 0:
+					player.remove_item(raw, k)
+					player.add_item(Items.COOKS[raw], k)
+					n += k
 			player.add_xp(Skills.XP.cook * n)
+			track("cook", n)
 			Audio.play("ignite", -6)
 			Audio.play("craft", -10)
 			message("Cooked %d meat over the fire." % n, UITheme.WARM)
@@ -634,10 +742,17 @@ func interaction_hint() -> String:
 	if player.dead:
 		return ""
 	var key := Settings.key_name("interact")
+	if _near_chest():
+		return "[%s] Search the chest" % key
+	var rune := _nearest("runes", player.global_position, 70)
+	if rune:
+		return "[%s] Read the rune stone" % key
+	if _nearest("shelters", player.global_position, 70):
+		return "[%s] Sleep until dawn" % key
 	var fire := _nearest("campfires", player.global_position, 75)
 	if fire:
-		if player.count("raw_meat") > 0 and fire.burning:
-			return "[%s] Cook raw meat (%d)" % [key, player.count("raw_meat")]
+		if _raw_count() > 0 and fire.burning:
+			return "[%s] Cook raw food (%d)" % [key, _raw_count()]
 		if not fire.burning:
 			return "[%s] Relight the fire with wood" % key
 		return "[%s] Add wood   •   fuel %ds" % [key, int(fire.fuel)]
@@ -654,19 +769,29 @@ func can_afford(cost: Dictionary) -> bool:
 	return true
 
 
+func needs_fire(rec: Dictionary) -> bool:
+	return rec.get("fire", false) and fire_near(player.global_position, 0.0) == null
+
+
 func craft(rec: Dictionary) -> void:
 	if not can_afford(rec.cost) or (rec.id in Items.UNIQUE and player.count(rec.id) > 0):
+		return
+	if needs_fire(rec):
+		message("You need to stand by a burning campfire to make that.", Color(1, 0.7, 0.5))
 		return
 	for k in rec.cost:
 		player.remove_item(k, rec.cost[k])
 	player.add_item(rec.id, rec.amount)
 	player.add_xp(Skills.XP.craft)
+	track("craft_" + rec.id)
+	if rec.id.begins_with("iron_"):
+		track("craft_iron")
 	Audio.play("craft", -2)
 	message("Crafted %s%s" % [Items.item_name(rec.id), (" x%d" % rec.amount) if rec.amount > 1 else ""], UITheme.WARM)
-	if rec.id == "campfire":
+	if Items.DATA[rec.id].kind == "place":
 		# go straight to placing it
 		hud.close_windows()
-		player.start_placing()
+		player.start_placing(rec.id)
 	elif Items.is_equippable(rec.id) and not rec.id in player.hotbar:
 		if player.auto_equip(rec.id):
 			message("%s added to your hotbar." % Items.item_name(rec.id))
@@ -682,16 +807,37 @@ func placement_point() -> Vector2:
 	return p
 
 
-func _can_place(p: Vector2) -> bool:
+func _can_place(p: Vector2, id := "campfire") -> bool:
 	if _in_lake(p, 1.05) or absf(p.x) > WORLD_HALF - 40 or absf(p.y) > WORLD_HALF - 40:
 		return false
+	var clear := 34.0 if id == "campfire" else 48.0
 	for n in get_tree().get_nodes_in_group("hittable"):
 		var k = n.get("kind")
-		if (k == "tree" or k == "rock") and n.global_position.distance_to(p) < 34:
+		if (k == "tree" or k == "rock") and n.global_position.distance_to(p) < clear:
 			return false
+	for g in ["cabins", "runes", "shelters"]:
+		for n in get_tree().get_nodes_in_group(g):
+			if n.global_position.distance_to(p) < (130.0 if g == "cabins" else 60.0):
+				return false
 	for f in get_tree().get_nodes_in_group("campfires"):
 		if f.global_position.distance_to(p) < 60:
 			return false
+	return true
+
+
+func place_structure(id: String, p: Vector2) -> bool:
+	if id == "campfire":
+		return place_campfire(p)
+	if not _can_place(p, id):
+		message("There isn't room for a shelter there.", Color(1, 0.7, 0.5))
+		return false
+	var sh := Shelter.new()
+	sh.position = p
+	entities.add_child(sh)
+	Audio.play_at("place", p)
+	player.add_xp(Skills.XP.build)
+	track("build_shelter")
+	message("Shelter built. Sleep in it (%s) at night while a campfire burns nearby." % Settings.key_name("interact"), UITheme.WARM)
 	return true
 
 
@@ -705,6 +851,7 @@ func place_campfire(p: Vector2) -> bool:
 	entities.add_child(f)
 	Audio.play_at("place", p)
 	player.add_xp(Skills.XP.build)
+	track("build_campfire")
 	message("Campfire built. Press %s near it to add wood or cook." % Settings.key_name("interact"), UITheme.WARM)
 	return true
 
@@ -896,6 +1043,10 @@ func save_game(show_message := true) -> bool:
 		"campfires": fires, "drops": drops, "animals": animals,
 		"waypoints": wps, "wp_counter": world_map._wp_counter,
 		"fog": Marshalls.raw_to_base64(world_map.fog.save_png_to_buffer()),
+		"runes_read": get_tree().get_nodes_in_group("runes").filter(func(r): return r.read).map(func(r): return r.index),
+		"cabins_looted": get_tree().get_nodes_in_group("cabins").filter(func(c): return c.looted).map(func(c): return c.index),
+		"shelters": get_tree().get_nodes_in_group("shelters").map(func(sh): return [sh.global_position.x, sh.global_position.y]),
+		"stats": stats, "goals": goals_done, "blizzard": _blizzard_t, "blizzard_cd": _blizzard_cd,
 	}
 	var ok := SaveManager.write(SaveManager.current_slot, data)
 	if show_message:
@@ -954,6 +1105,27 @@ func _apply_save(d: Dictionary) -> void:
 		entities.add_child(flag)
 		_flags.append(flag)
 	world_map._wp_counter = int(d.get("wp_counter", world_map.waypoints.size()))
+	var read: Array = d.get("runes_read", []).map(func(v): return int(v))
+	for r in get_tree().get_nodes_in_group("runes"):
+		r.read = r.index in read
+		r.queue_redraw()
+	var looted: Array = d.get("cabins_looted", []).map(func(v): return int(v))
+	for c in get_tree().get_nodes_in_group("cabins"):
+		if c.index in looted:
+			c.looted = true
+			c._lid = 1.0
+			c.queue_redraw()
+	for sp in d.get("shelters", []):
+		var sh := Shelter.new()
+		sh.position = Vector2(sp[0], sp[1])
+		entities.add_child(sh)
+	var st: Dictionary = d.get("stats", {})
+	for k in st:
+		stats[k] = int(st[k])
+	stats["dawn"] = maxi(int(stats.get("dawn", 0)), day - 1)
+	goals_done = Array(d.get("goals", []))
+	_blizzard_t = float(d.get("blizzard", 0.0))
+	_blizzard_cd = float(d.get("blizzard_cd", 200.0))
 	if d.has("fog"):
 		var img := Image.new()
 		if img.load_png_from_buffer(Marshalls.base64_to_raw(str(d.fog))) == OK:
@@ -962,3 +1134,135 @@ func _apply_save(d: Dictionary) -> void:
 			world_map.fog_tex.set_image(img)
 	world_map.reveal(player.global_position)
 	camera.reset_smoothing()
+
+
+# ---------------------------------------------------------------- content: lore, loot, sleep, weather, journal
+func read_rune(r: RuneStone) -> void:
+	var first := not r.read
+	if first:
+		r.read = true
+		r.queue_redraw()
+		player.add_xp(Skills.XP.rune)
+		track("rune")
+	Audio.play("rune", -4, 0.0)
+	var count := get_tree().get_nodes_in_group("runes").filter(func(x): return x.read).size()
+	hud.show_lore(r.title(), r.text(), "Rune stones read: %d / %d" % [count, RuneStone.LORE.size()])
+
+
+func _loot_cabin(c: Cabin) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = world_seed + c.index * 7919
+	var loot := c.roll_loot(rng, player.count("fishing_rod") > 0)
+	c.open_chest()
+	Audio.play_at("chest_open", c.chest_position(), 0)
+	var origin := c.chest_position() + Vector2(0, -10)
+	for id in loot:
+		for i in loot[id]:
+			spawn_drop(id, 1, player.global_position + Vector2(randf_range(-26, 26), randf_range(-6, 18)), origin)
+	player.add_xp(Skills.XP.cabin)
+	track("cabin")
+	message("You found supplies left by a trapper.", UITheme.WARM)
+
+
+func _try_sleep(shelter: Node2D) -> void:
+	if not (is_night() or time_of_day > 0.74):
+		message("You're not tired yet. Sleep here once the sun goes down.")
+		return
+	if fire_near(shelter.global_position, 40.0) == null:
+		message("Too cold to sleep. Light a campfire next to your shelter first.", Color(0.7, 0.85, 1.0))
+		return
+	Fader.sleep_transition(func():
+		time_of_day = 0.249
+		player.hunger = maxf(5.0, player.hunger - 20.0)
+		player.stamina = 100.0
+		player.health = minf(player.max_health, player.health + 30.0)
+		player.warmth = maxf(player.warmth, 75.0)
+		for w in get_tree().get_nodes_in_group("wolf"):
+			if w.global_position.distance_to(player.global_position) < 900:
+				w.queue_free()
+		for f in get_tree().get_nodes_in_group("campfires"):
+			if f.global_position.distance_to(shelter.global_position) < 200:
+				f.fuel = maxf(f.fuel, 30.0)
+		track("sleep")
+		message("You sleep soundly through the night.", UITheme.WARM))
+
+
+func weather_cold_mult() -> float:
+	return 1.0 + 0.9 * _blizzard_amt
+
+
+func blizzard_active() -> bool:
+	return _blizzard_t > 0
+
+
+func _update_weather(delta: float) -> void:
+	if _blizzard_t > 0:
+		_blizzard_t -= delta
+		if _blizzard_t <= 0:
+			message("The blizzard passes.", UITheme.ACCENT)
+			Audio.set_ambience("amb_wind", -6 if _night else -13, 6.0)
+	else:
+		_blizzard_cd -= delta
+		if _blizzard_cd <= 0:
+			_blizzard_cd = randf_range(160, 320)
+			if day >= 2 and randf() < 0.5:
+				start_blizzard(randf_range(60, 110))
+	var target := 1.0 if _blizzard_t > 0 else 0.0
+	_blizzard_amt = move_toward(_blizzard_amt, target, delta / 6.0)
+	if _blizzard_fx == null:
+		_make_blizzard_fx()
+	_blizzard_fx.emitting = _blizzard_amt > 0.05
+	_blizzard_fx.modulate.a = _blizzard_amt
+	_blizzard_fx.global_position = camera.get_screen_center_position() + Vector2(-700, -200)
+	hud.set_blizzard(_blizzard_amt)
+
+
+func start_blizzard(duration: float) -> void:
+	_blizzard_t = duration
+	hud.show_banner("A blizzard rolls in!", Color(0.8, 0.9, 1.0))
+	message("The cold bites twice as hard. Find a fire.", Color(0.7, 0.85, 1.0))
+	Audio.set_ambience("amb_wind", 0, 5.0)
+
+
+func _make_blizzard_fx() -> void:
+	_blizzard_fx = CPUParticles2D.new()
+	_blizzard_fx.amount = 700
+	_blizzard_fx.lifetime = 2.2
+	_blizzard_fx.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
+	_blizzard_fx.emission_rect_extents = Vector2(60, 520)
+	_blizzard_fx.direction = Vector2(1, 0.25)
+	_blizzard_fx.spread = 8
+	_blizzard_fx.gravity = Vector2(40, 30)
+	_blizzard_fx.initial_velocity_min = 520
+	_blizzard_fx.initial_velocity_max = 780
+	_blizzard_fx.scale_amount_min = 1.2
+	_blizzard_fx.scale_amount_max = 3.0
+	_blizzard_fx.color = Color(1, 1, 1, 0.75)
+	_blizzard_fx.local_coords = false
+	_blizzard_fx.z_index = 21
+	_blizzard_fx.emitting = false
+	add_child(_blizzard_fx)
+
+
+## Counts journal events and completes goals.
+func track(event: String, n := 1) -> void:
+	stats[event] = int(stats.get(event, 0)) + n
+	for g in Journal.GOALS:
+		if g.id in goals_done:
+			continue
+		if int(stats.get(g.event, 0)) >= g.target:
+			goals_done.append(g.id)
+			player.add_xp(g.xp)
+			Audio.play("goal", -4, 0.0)
+			message("Goal complete: %s  (+%d XP)" % [g.text, g.xp], Color(0.95, 0.85, 0.5))
+
+
+func goal_progress(g: Dictionary) -> int:
+	return mini(int(stats.get(g.event, 0)), g.target)
+
+
+func next_goal() -> Dictionary:
+	for g in Journal.GOALS:
+		if not g.id in goals_done:
+			return g
+	return {}

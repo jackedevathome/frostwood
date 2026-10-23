@@ -23,6 +23,7 @@ The first time you open the project, Godot imports the audio files. This takes a
 | Inventory & crafting | **I** (or **C**) |
 | Skill tree | **K** |
 | World map | **M** |
+| Journal (goals) | **J** |
 | Pause / close window | **Esc** |
 
 You can rebind keys under **Settings → Controls**.
@@ -35,6 +36,28 @@ You can rebind keys under **Settings → Controls**.
 - **Crafting:** arrows, torch, campfire, spear, bow, fur cloak.
 - Fires burn out. Press **E** next to one to add wood.
 - Walking on frozen lakes is slippery.
+
+## The wilderness
+- **Trees:** Scots pines, Norway spruces and white winter **birches**. Birches give **birch bark**, and spruces sometimes drop **spruce tips**.
+- **Iron ore:** red-veined boulders in the far woods (away from the start). Mine them for iron ore.
+- **Animals:** wolves (hunt at night, fear fire), **brown bears** (rare, territorial and very dangerous; they drop a bear pelt),
+  deer, hares and **foxes** (fox fur).
+- **Rune stones:** six carved stones with pieces of lore. Reading one (E) gives XP.
+- **Abandoned cabins:** four trapper cabins, each with a chest of supplies.
+- **Ice fishing:** equip a fishing rod and click a frozen lake to cast. When the bobber dips and **!** appears, click to reel in.
+- **Blizzards:** from day 2, blizzards can roll in. You lose warmth almost twice as fast and can see less.
+
+## Crafting
+Arrows, torch, campfire, spear, bow, fishing rod, birch bandages (heal over time), spruce-tip tea (no cold for 2 minutes),
+fur cloak, fox fur hat, **lavvu shelter**, iron axe, iron pickaxe and bear pelt cloak.
+Tea and iron tools need a **burning campfire** nearby. Raw meat and fish are cooked at a campfire with E.
+
+**Sleeping:** place a shelter next to a campfire. At night, press E at the shelter to sleep until dawn
+(restores health and stamina, costs some hunger, and wolves nearby wander off).
+
+## Journal
+The journal (J) has 14 goals, from "Gather 10 wood" to "Slay a brown bear" and "Survive seven days". Each pays out XP.
+The next unfinished goal is shown under your stats.
 
 ## Inventory & hotbar
 Everything you carry is in the **inventory** (I). The HUD has **3 hotbar slots**: drag an item from the

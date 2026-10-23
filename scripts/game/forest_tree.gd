@@ -1,6 +1,6 @@
 class_name ForestTree
 extends StaticBody2D
-## A choppable Scots pine or Norway spruce. Origin is at the base of the trunk.
+## A choppable Scots pine, Norway spruce or winter birch. Origin is at the base of the trunk.
 
 var kind := "tree"
 var species := "spruce"
@@ -18,6 +18,7 @@ var _alpha := 1.0
 var _shapes: Array = []  # [PackedVector2Array, Color]
 var _trunk_col: Color
 var _branches: Array = []
+var _marks: Array = []  # birch bark marks: [y, length, side]
 var _mesh: ArrayMesh
 var _game: Node
 
@@ -75,6 +76,24 @@ func _build() -> void:
 			var sn := PackedVector2Array([Vector2(-half * 0.85, y0 - 1), Vector2(-half * 0.45, y0 - tier_h * 0.42), Vector2(0, y0 - tier_h + 2),
 				Vector2(half * 0.3, y0 - tier_h * 0.6), Vector2(half * 0.15, y0 - tier_h * 0.45), Vector2(-half * 0.3, y0 - tier_h * 0.25), Vector2(-half * 0.55, y0 - 2)])
 			_shapes.append([sn, Color(0.9, 0.94, 0.98, 0.92)])
+	elif species == "birch":
+		height = 150.0 * scale_f
+		canopy_w = 70.0 * scale_f
+		_trunk_col = Color(0.9, 0.89, 0.85)
+		var twig := Color(0.33, 0.26, 0.24)
+		# a soft purple-brown haze of fine twigs, then bare forked branches with snow on top
+		for k in 2:
+			var hc := Vector2(r.randf_range(-0.15, 0.15) * canopy_w, -height * r.randf_range(0.66, 0.78))
+			_shapes.append([_ellipse(hc, Vector2(canopy_w * 0.42, height * 0.17), 16), Color(0.55, 0.47, 0.5, 0.1)])
+		var trunk_top := -height * 0.55
+		for i in 6:
+			var side := -1.0 if i % 2 == 0 else 1.0
+			var start := Vector2(0, lerpf(-height * 0.36, trunk_top, float(i) / 5.0))
+			_branch(r, start, -PI / 2 + side * r.randf_range(0.45, 0.8), height * r.randf_range(0.17, 0.24), 3, twig)
+		_branch(r, Vector2(0, trunk_top), -PI / 2, height * 0.3, 3, twig)
+		_marks.clear()
+		for k in 9:
+			_marks.append([r.randf_range(0.05, 0.55) * height, r.randf_range(2.0, 5.0), -1.0 if r.randf() < 0.5 else 1.0])
 	else:
 		height = 165.0 * scale_f
 		canopy_w = 84.0 * scale_f
@@ -127,6 +146,33 @@ func _bake() -> void:
 	_shapes.clear()
 
 
+## Recursive bare branch for birches, stored as thin quads in the baked mesh.
+func _branch(r: RandomNumberGenerator, start: Vector2, ang: float, length: float, depth: int, col: Color) -> void:
+	var end := start + Vector2.from_angle(ang) * length
+	var w := 0.6 + depth * 0.7
+	_shapes.append([_quad(start, end, w * scale_f), col])
+	if depth == 3 or (depth == 2 and r.randf() < 0.6):
+		# snow resting on the upper side of thicker branches
+		_shapes.append([_quad(start + Vector2(0, -w * 0.6), end + Vector2(0, -w * 0.6), w * 0.7 * scale_f), Color(0.94, 0.96, 1.0, 0.9)])
+	if depth <= 1:
+		return
+	for k in 2:
+		_branch(r, end, ang + (k * 2 - 1) * r.randf_range(0.3, 0.6), length * r.randf_range(0.55, 0.72), depth - 1, col)
+
+
+func _quad(a: Vector2, b: Vector2, w: float) -> PackedVector2Array:
+	var n := (b - a).normalized().orthogonal() * w * 0.5
+	return PackedVector2Array([a + n, b + n, b - n, a - n])
+
+
+func _ellipse(c: Vector2, rad: Vector2, n: int) -> PackedVector2Array:
+	var p := PackedVector2Array()
+	for i in n:
+		var a := TAU * i / n
+		p.append(c + Vector2(cos(a) * rad.x, sin(a) * rad.y))
+	return p
+
+
 func _circle(c: Vector2, rad: float, n: int) -> PackedVector2Array:
 	var p := PackedVector2Array()
 	for i in n:
@@ -155,10 +201,15 @@ func _draw() -> void:
 	draw_set_transform(off, rot, Vector2.ONE)
 	var a := _alpha
 	# trunk
-	var trunk_h := height * (0.62 if species == "pine" else 0.2)
-	var tw := 5.0 * sc if species == "pine" else 4.5 * sc
+	var trunk_h := height * (0.62 if species == "pine" else (0.6 if species == "birch" else 0.2))
+	var tw := 5.0 * sc if species == "pine" else (4.0 * sc if species == "birch" else 4.5 * sc)
 	draw_colored_polygon(PackedVector2Array([Vector2(-tw, 0), Vector2(-tw * 0.6, -trunk_h), Vector2(tw * 0.6, -trunk_h), Vector2(tw, 0)]), Color(_trunk_col, a))
 	draw_line(Vector2(tw * 0.3, -2), Vector2(tw * 0.2, -trunk_h), Color(_trunk_col.darkened(0.3), a), tw * 0.6)
+	if species == "birch":
+		for m in _marks:
+			var y: float = -m[0]
+			var x0: float = m[2] * tw * 0.75
+			draw_line(Vector2(x0, y), Vector2(x0 - m[2] * m[1] * sc, y + 0.5), Color(0.12, 0.11, 0.11, a), 1.6)
 	if species == "pine":
 		draw_line(Vector2(-tw * 0.4, -trunk_h * 0.3), Vector2(-tw * 0.3, -trunk_h * 0.9), Color(_trunk_col.lightened(0.25), a), 1.5)
 		for b in _branches:
@@ -224,6 +275,16 @@ func _fell(source: Node2D) -> void:
 	_game.player.add_xp(Skills.XP.fell)
 	_game.world_map.clear_at(global_position)
 	var n: int = 3 + int(scale_f * 1.5) + _game.bonus_drops()
+	var extra := {}
+	if species == "birch":
+		n -= 1
+		extra["birch_bark"] = 2 + (1 if randf() < 0.3 else 0)
+	elif species == "spruce" and randf() < 0.45:
+		extra["spruce_tips"] = 1 + (1 if randf() < 0.35 else 0)
+	for id in extra:
+		for i in extra[id]:
+			var p := global_position + Vector2(_fall_dir * randf_range(20, height * 0.7), randf_range(-16, 16))
+			_game.spawn_drop(id, 1, p, global_position)
 	for i in n:
 		var p := global_position + Vector2(_fall_dir * randf_range(20, height * 0.7), randf_range(-16, 16))
 		_game.spawn_drop("wood", 1, p, global_position)

@@ -146,6 +146,18 @@ func _draw_view() -> void:
 		gx += step
 	_view.draw_rect(world_rect, Color(0.6, 0.75, 0.88, 0.6), false, 2.0)
 
+	for g in ["cabins", "runes", "shelters"]:
+		for poi in get_tree().get_nodes_in_group(g):
+			if not map.explored(poi.global_position):
+				continue
+			var q := _to_screen(map.to_map(poi.global_position))
+			var icon: String = {"cabins": "cabin", "runes": "rune", "shelters": "shelter"}[g]
+			_view.draw_circle(q, 11, Color(0.03, 0.04, 0.06, 0.75))
+			var col := Color(0.55, 0.85, 1.0) if g == "runes" and not poi.read else Color(0.6, 0.65, 0.7, 0.6)
+			if g == "cabins":
+				col = Color(0.95, 0.8, 0.45) if not poi.looted else Color(0.6, 0.65, 0.7, 0.6)
+			_view.draw_arc(q, 11, 0, TAU, 20, col, 1.5, true)
+			Items.draw_icon(_view, icon, q, 8.0)
 	for f in get_tree().get_nodes_in_group("campfires"):
 		var q := _to_screen(map.to_map(f.global_position))
 		_view.draw_circle(q, 6, Color(0.2, 0.1, 0.05, 0.8))
@@ -168,12 +180,17 @@ func _draw_view() -> void:
 	_view.draw_colored_polygon(PackedVector2Array([cp + Vector2(0, 22), cp + Vector2(6, 0), cp + Vector2(-6, 0)]), Color(0.85, 0.88, 0.92))
 	HUD.text(_view, cp + Vector2(-30, -30), "N", 14, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, 60)
 	# legend
-	var lp := Vector2(16, _view.size.y - 110)
-	_view.draw_style_box(UITheme.box(Color(0.04, 0.06, 0.09, 0.85), Color(0.5, 0.65, 0.78, 0.35), 1, 8, 0), Rect2(lp, Vector2(180, 96)))
-	var items := [[Color(0.11, 0.3, 0.27), "Spruce"], [Color(0.2, 0.36, 0.2), "Pine"], [Color(0.5, 0.68, 0.82), "Frozen lake"], [Color(1.0, 0.6, 0.2), "Campfire"]]
+	var lp := Vector2(16, _view.size.y - 194)
+	_view.draw_style_box(UITheme.box(Color(0.04, 0.06, 0.09, 0.85), Color(0.5, 0.65, 0.78, 0.35), 1, 8, 0), Rect2(lp, Vector2(180, 180)))
+	var items := [[Color(0.11, 0.3, 0.27), "Spruce"], [Color(0.2, 0.36, 0.2), "Pine"], [Color(0.85, 0.85, 0.82), "Birch"],
+		[Color(0.5, 0.68, 0.82), "Frozen lake (fishing)"], [Color(1.0, 0.6, 0.2), "Campfire"]]
 	for i in items.size():
 		_view.draw_circle(lp + Vector2(16, 16 + i * 21), 5, items[i][0])
 		HUD.text(_view, lp + Vector2(30, 21 + i * 21), items[i][1], 14)
+	var icons := [["rune", "Rune stone"], ["cabin", "Abandoned cabin"], ["shelter", "Shelter"]]
+	for i in icons.size():
+		Items.draw_icon(_view, icons[i][0], lp + Vector2(16, 121 + i * 21), 7.0)
+		HUD.text(_view, lp + Vector2(30, 126 + i * 21), icons[i][1], 14)
 	_info.text = "Left click: place waypoint (%d/%d)   •   Right click: remove waypoint   •   Wheel: zoom   •   Drag: pan   •   %s / Esc: close" % [
 		map.waypoints.size(), WorldMap.MAX_WAYPOINTS, Settings.key_name("map")]
 
