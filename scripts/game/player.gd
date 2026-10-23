@@ -186,6 +186,43 @@ func add_xp(amount: int) -> void:
 		leveled_up.emit(level)
 
 
+# ---------------------------------------------------------------- save / load
+func to_dict() -> Dictionary:
+	return {
+		"pos": [global_position.x, global_position.y],
+		"health": health, "max_health": max_health, "hunger": hunger, "warmth": warmth, "stamina": stamina,
+		"inventory": inventory.duplicate(), "hotbar": Array(hotbar), "selected": selected,
+		"level": level, "xp": xp, "skill_points": skill_points, "skills": skills.duplicate(),
+	}
+
+
+func from_dict(d: Dictionary) -> void:
+	var p: Array = d.get("pos", [0, 0])
+	global_position = Vector2(p[0], p[1])
+	max_health = float(d.get("max_health", 100.0))
+	health = float(d.get("health", max_health))
+	hunger = float(d.get("hunger", 100.0))
+	warmth = float(d.get("warmth", 100.0))
+	stamina = float(d.get("stamina", 100.0))
+	inventory.clear()
+	var inv: Dictionary = d.get("inventory", {})
+	for k in inv:
+		if Items.DATA.has(k) and int(inv[k]) > 0:
+			inventory[k] = int(inv[k])
+	var hb: Array = d.get("hotbar", [])
+	for i in SLOTS:
+		hotbar[i] = str(hb[i]) if i < hb.size() else ""
+	selected = clampi(int(d.get("selected", 0)), 0, SLOTS - 1)
+	level = int(d.get("level", 1))
+	xp = int(d.get("xp", 0))
+	skill_points = int(d.get("skill_points", 0))
+	skills.clear()
+	var sk: Dictionary = d.get("skills", {})
+	for k in sk:
+		if Skills.DATA.has(k):
+			skills[k] = int(sk[k])
+
+
 # ---------------------------------------------------------------- input
 func _unhandled_input(event: InputEvent) -> void:
 	if dead or get_tree().paused:
@@ -435,41 +472,71 @@ func _draw() -> void:
 	if behind and not dead:
 		_draw_item(face)
 
-	# legs
-	var leg := Color(0.25, 0.22, 0.2) * tint
+	# backpack with a rolled bedroll, worn on the back (drawn first, behind the body)
+	var back := -face
+	draw_rect(Rect2(Vector2(back * 9 - 4, body_y - 8), Vector2(8, 13)), Color(0.4, 0.28, 0.17) * tint)
+	draw_line(Vector2(back * 9 - 4, body_y - 9), Vector2(back * 9 + 4, body_y - 9), Color(0.36, 0.42, 0.36) * tint, 5)
+
+	# legs: dark wool trousers with lighter leg wraps, leather boots
+	var leg := Color(0.3, 0.26, 0.22) * tint
+	var wrap := Color(0.55, 0.5, 0.42) * tint
 	var sw := sin(_walk) * 4.0 if moving else 0.0
-	draw_line(Vector2(-4, -8 - bob), Vector2(-4 + sw, 0), leg, 5)
-	draw_line(Vector2(4, -8 - bob), Vector2(4 - sw, 0), leg, 5)
-	draw_circle(Vector2(-4 + sw, 0), 3, Color(0.35, 0.25, 0.18) * tint)
-	draw_circle(Vector2(4 - sw, 0), 3, Color(0.35, 0.25, 0.18) * tint)
-	# body / tunic
+	for side in [-1.0, 1.0]:
+		var foot := Vector2(side * 4 + sw * side, 0)
+		var hip := Vector2(side * 4, -8 - bob)
+		draw_line(hip, foot, leg, 5)
+		draw_line(hip.lerp(foot, 0.45) + Vector2(-2.5, 0), hip.lerp(foot, 0.55) + Vector2(2.5, 0), wrap, 1.5)
+		draw_line(hip.lerp(foot, 0.7) + Vector2(-2.5, 0), hip.lerp(foot, 0.8) + Vector2(2.5, 0), wrap, 1.5)
+		draw_circle(foot + Vector2(face * 1.0, 0), 3, Color(0.2, 0.14, 0.1) * tint)
+
+	# tunic: forest-green wool, tapered body with a woven hem band
 	var cloak := count("fur_cloak") > 0
-	var tunic := Color(0.58, 0.2, 0.17) * tint
+	var tunic := Color(0.24, 0.37, 0.3) * tint
+	var tunic_dark := Color(0.18, 0.28, 0.23) * tint
+	var body := PackedVector2Array([Vector2(-5, body_y - 10), Vector2(5, body_y - 10), Vector2(9, body_y - 6),
+		Vector2(10.5, body_y + 6), Vector2(-10.5, body_y + 6), Vector2(-9, body_y - 6)])
+	draw_colored_polygon(body, tunic)
+	draw_colored_polygon(PackedVector2Array([Vector2(back * 2, body_y - 10), Vector2(back * 9, body_y - 6), Vector2(back * 10.5, body_y + 6), Vector2(back * 3, body_y + 6)]), tunic_dark)
+	draw_rect(Rect2(-10.5, body_y + 3, 21, 3), Color(0.62, 0.48, 0.26) * tint)
+	for i in 5:
+		var x := -8.0 + i * 4.0
+		draw_colored_polygon(PackedVector2Array([Vector2(x, body_y + 3), Vector2(x + 1.5, body_y + 4.5), Vector2(x, body_y + 6), Vector2(x - 1.5, body_y + 4.5)]), Color(0.42, 0.2, 0.15) * tint)
+	# leather belt, iron buckle and a knife on the hip
+	draw_rect(Rect2(-9.5, body_y - 1, 19, 3), Color(0.33, 0.22, 0.13) * tint)
+	draw_rect(Rect2(-1.5, body_y - 1.5, 3, 4), Color(0.55, 0.57, 0.6) * tint)
+	draw_line(Vector2(back * 6, body_y + 1), Vector2(back * 7.5, body_y + 7), Color(0.25, 0.17, 0.1) * tint, 2.5)
+	# grey wolf-pelt cloak over the shoulders
 	if cloak:
-		draw_colored_polygon(PackedVector2Array([Vector2(-10, body_y - 7), Vector2(10, body_y - 7), Vector2(13, body_y + 9), Vector2(-13, body_y + 9)]), Color(0.48, 0.34, 0.22) * tint)
-	draw_circle(Vector2(0, body_y), 10, tunic)
-	draw_rect(Rect2(-9, body_y + 2, 18, 3), Color(0.3, 0.2, 0.12) * tint)
-	draw_circle(Vector2(0, body_y + 3.5), 1.8, Color(0.85, 0.7, 0.3) * tint)
-	if cloak:
-		for i in 5:
-			draw_circle(Vector2(-8 + i * 4, body_y - 7), 3.2, Color(0.93, 0.91, 0.87) * tint)
-	# head
-	var head := Vector2(0, body_y - 13)
-	draw_circle(head, 7.5, Color(0.95, 0.8, 0.67) * tint)
-	# beard
-	var beard := [Vector2(-6, 1), Vector2(6, 1), Vector2(3, 9), Vector2(-2, 8)] if face > 0 else [Vector2(-6, 1), Vector2(6, 1), Vector2(2, 8), Vector2(-3, 9)]
-	var bp := PackedVector2Array()
-	for v in beard:
-		bp.append(head + v)
-	draw_colored_polygon(bp, Color(0.9, 0.72, 0.38) * tint)
-	# eyes look toward aim
+		var pelt := Color(0.5, 0.51, 0.54) * tint
+		draw_colored_polygon(PackedVector2Array([Vector2(-9, body_y - 10), Vector2(9, body_y - 10), Vector2(12.5, body_y - 2),
+			Vector2(0, body_y + 1), Vector2(-12.5, body_y - 2)]), pelt)
+		draw_line(Vector2(back * 10, body_y - 4), Vector2(back * 12, body_y + 7), pelt, 4)
+		for i in 6:
+			draw_circle(Vector2(-9 + i * 3.6, body_y - 8.5), 2.4, Color(0.4, 0.41, 0.44) * tint)
+
+	# head: auburn hair and short braided beard, dark knitted cap
+	var head := Vector2(0, body_y - 15)
+	var hair := Color(0.46, 0.27, 0.15) * tint
+	draw_circle(head, 7.2, Color(0.93, 0.78, 0.65) * tint)
+	draw_circle(head + Vector2(back * 5.5, 1), 3.2, hair)
+	var bp := PackedVector2Array([head + Vector2(-5.5, 2), head + Vector2(5.5, 2), head + Vector2(3, 6.5), head + Vector2(face * 0.5, 10), head + Vector2(-3, 6.5)])
+	draw_colored_polygon(bp, hair)
+	draw_line(head + Vector2(face * 0.5, 7), head + Vector2(face * 0.5, 10), Color(0.62, 0.5, 0.3) * tint, 1.5)
+	draw_line(head + Vector2(-2.5, 1.6), head + Vector2(2.5, 1.6), Color(0.6, 0.4, 0.33) * tint, 1.2)
 	var look := Vector2(aim.x * 2.5, minf(aim.y * 1.5, 1.0))
 	if aim.y > -0.6:
-		draw_circle(head + Vector2(-2.6, -1) + look, 1.2, Color(0.15, 0.2, 0.3))
-		draw_circle(head + Vector2(2.6, -1) + look, 1.2, Color(0.15, 0.2, 0.3))
-	# fur hat
-	draw_colored_polygon(PackedVector2Array([head + Vector2(-8, -2), head + Vector2(-6, -9), head + Vector2(0, -11), head + Vector2(6, -9), head + Vector2(8, -2)]), Color(0.42, 0.3, 0.2) * tint)
-	draw_rect(Rect2(head.x - 8.5, head.y - 4, 17, 4), Color(0.88, 0.86, 0.82) * tint)
+		draw_circle(head + Vector2(-2.5, -1) + look, 1.1, Color(0.12, 0.16, 0.22))
+		draw_circle(head + Vector2(2.5, -1) + look, 1.1, Color(0.12, 0.16, 0.22))
+		draw_line(head + Vector2(-4, -3) + look, head + Vector2(-1.3, -3.4) + look, hair, 1.2)
+		draw_line(head + Vector2(1.3, -3.4) + look, head + Vector2(4, -3) + look, hair, 1.2)
+	var cap := Color(0.23, 0.29, 0.38) * tint
+	draw_colored_polygon(PackedVector2Array([head + Vector2(-7.8, -2), head + Vector2(-6.5, -7.5), head + Vector2(-2.5, -10.2),
+		head + Vector2(2.5, -10.2), head + Vector2(6.5, -7.5), head + Vector2(7.8, -2)]), cap)
+	# the cap slouches towards the back
+	draw_colored_polygon(PackedVector2Array([head + Vector2(back * 1, -10.2), head + Vector2(back * 9, -9), head + Vector2(back * 6, -5)]), cap.darkened(0.15))
+	draw_rect(Rect2(head.x - 7.9, head.y - 4.5, 15.8, 2.5), Color(0.34, 0.42, 0.52) * tint)
+	for i in 4:
+		draw_circle(Vector2(head.x - 5.5 + i * 3.7, head.y - 3.2), 0.8, Color(0.75, 0.62, 0.35) * tint)
 
 	if not behind and not dead:
 		_draw_item(face)
@@ -486,7 +553,7 @@ func _draw_item(face: float) -> void:
 	if kind == "ranged":
 		var pull := _swing * 6.0
 		var hand := shoulder + aim * 13
-		draw_line(shoulder, hand, Color(0.58, 0.2, 0.17), 4)
+		draw_line(shoulder, hand, Color(0.2, 0.32, 0.26), 4)
 		draw_set_transform(hand, ang, Vector2.ONE)
 		var pts := PackedVector2Array()
 		for i in 11:
@@ -502,7 +569,7 @@ func _draw_item(face: float) -> void:
 		return
 	if kind == "place" or kind == "food":
 		var hand := shoulder + aim * 12
-		draw_line(shoulder, hand, Color(0.58, 0.2, 0.17), 4)
+		draw_line(shoulder, hand, Color(0.2, 0.32, 0.26), 4)
 		Items.draw_icon(self, id, hand, 8.0)
 		return
 	# Melee/torch swing: arc from behind to in front of the aim direction.
@@ -514,7 +581,7 @@ func _draw_item(face: float) -> void:
 		swing_off = -0.35 * face
 	var dir := Vector2.from_angle(ang + swing_off)
 	var hand := shoulder + dir * 12
-	draw_line(shoulder, hand, Color(0.58, 0.2, 0.17), 4)
+	draw_line(shoulder, hand, Color(0.2, 0.32, 0.26), 4)
 	draw_circle(hand, 3, Color(0.95, 0.8, 0.67))
 	# icons are drawn diagonally (handle bottom-left -> head top-right), rotate so head points along dir
 	var isz := 13.0 if id != "spear" else 18.0

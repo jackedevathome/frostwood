@@ -143,7 +143,7 @@ func setup(g: Node) -> void:
 	h.add_child(left)
 	var title_row := HBoxContainer.new()
 	left.add_child(title_row)
-	var title := UITheme.label("Inventory", 28, UITheme.ACCENT)
+	var title := UITheme.heading("Inventory", 28)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	title_row.add_child(title)
 	_worn = UITheme.label("", 15, UITheme.WARM)
@@ -191,7 +191,8 @@ func setup(g: Node) -> void:
 	var right := VBoxContainer.new()
 	right.add_theme_constant_override("separation", 8)
 	h.add_child(right)
-	right.add_child(UITheme.label("Crafting", 28, UITheme.ACCENT))
+	right.add_child(UITheme.heading("Crafting", 28))
+	right.add_child(UITheme.ornament(320))
 	_craft_rows = VBoxContainer.new()
 	_craft_rows.add_theme_constant_override("separation", 6)
 	right.add_child(_craft_rows)

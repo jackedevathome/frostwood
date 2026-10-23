@@ -33,6 +33,10 @@ var world_map: WorldMap
 var _map_screen: MapScreen
 var _reveal_t := 0.0
 var _flags: Array = []  # world flag nodes, parallel to world_map.waypoints
+var world_seed := 0
+var play_time := 0.0
+var _by_uid := {}  # generation index -> tree / rock / bush node
+var _next_uid := 0
 
 
 static func light_texture() -> Texture2D:
@@ -53,7 +57,17 @@ static func light_texture() -> Texture2D:
 
 
 func _ready() -> void:
-	_rng.randomize()
+	var save: Dictionary = SaveManager.pending
+	SaveManager.pending = {}
+	if SaveManager.current_slot < 0:
+		var free := SaveManager.first_empty_slot()
+		SaveManager.current_slot = free if free >= 0 else 0
+	if save.has("seed"):
+		world_seed = int(save.seed)
+	else:
+		_rng.randomize()
+		world_seed = _rng.randi()
+	_rng.seed = world_seed
 	var seed_v := _rng.randi()
 	_canvas_mod = CanvasModulate.new()
 	add_child(_canvas_mod)
@@ -89,6 +103,7 @@ func _ready() -> void:
 	world_map = WorldMap.new(WORLD_HALF)
 	world_map.build(lakes, entities.get_children())
 	world_map.reveal(player.global_position)
+	camera.reset_smoothing()
 	_make_bounds()
 	_make_snow()
 	_make_ghost()
@@ -97,6 +112,7 @@ func _ready() -> void:
 	add_child(hud)
 	hud.setup(self)
 	_pause = PauseMenu.new()
+	_pause.game = self
 	add_child(_pause)
 	_pause.resumed.connect(restore_cursor)
 	_death = DeathScreen.new()
@@ -106,6 +122,8 @@ func _ready() -> void:
 	add_child(_map_screen)
 	player.leveled_up.connect(_on_level_up)
 
+	if not save.is_empty():
+		_apply_save(save)
 	_night = is_night()
 	_apply_lighting()
 	Audio.play_music("music_day", 3.0)
@@ -113,6 +131,10 @@ func _ready() -> void:
 	Audio.set_ambience("amb_wind", -13, 3.0)
 	Audio.set_ambience("amb_forest", -9, 3.0)
 	_set_crosshair()
+	if not save.is_empty():
+		hud.show_banner("Day %d" % day)
+		message("Welcome back. Your game was loaded from slot %d." % (SaveManager.current_slot + 1), UITheme.ACCENT)
+		return
 	hud.show_banner("Day 1")
 	message("Chop trees with your axe (Left Mouse) to gather wood.", UITheme.ACCENT)
 	message("Press %s for your inventory and crafting. Build a campfire before night falls!" % Settings.key_name("inventory"), UITheme.ACCENT)
@@ -120,6 +142,12 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	Input.set_custom_mouse_cursor(null)
+
+
+func _notification(what: int) -> void:
+	# save when the window is closed mid-game
+	if what == NOTIFICATION_WM_CLOSE_REQUEST and player and not player.dead:
+		save_game(false)
 
 
 # ---------------------------------------------------------------- world generation
@@ -207,6 +235,7 @@ func _gen_world() -> void:
 		var b := Boulder.new()
 		b.position = p
 		b.setup(self, _rng.randf_range(0.8, 1.4))
+		_register(b)
 		entities.add_child(b)
 		rocks += 1
 		if rocks >= 120:
@@ -218,6 +247,7 @@ func _gen_world() -> void:
 			var b := Boulder.new()
 			b.position = p
 			b.setup(self, 1.0)
+			_register(b)
 			entities.add_child(b)
 	for p in [Vector2(110, 110), Vector2(-150, -40)]:
 		mark.call(p)
@@ -241,6 +271,12 @@ func _gen_world() -> void:
 	_spawn_animal("wolf", 1300, 2200)
 
 
+func _register(n: Node) -> void:
+	n.set_meta("uid", _next_uid)
+	_by_uid[_next_uid] = n
+	_next_uid += 1
+
+
 func _count_kind(k: String) -> int:
 	var n := 0
 	for c in entities.get_children():
@@ -253,6 +289,7 @@ func _add_tree(p: Vector2, sp: String, sc: float) -> void:
 	var t := ForestTree.new()
 	t.position = p
 	t.setup(self, sp, sc)
+	_register(t)
 	entities.add_child(t)
 
 
@@ -260,6 +297,7 @@ func _add_bush(p: Vector2) -> void:
 	var b := BerryBush.new()
 	b.position = p
 	b.setup(self)
+	_register(b)
 	entities.add_child(b)
 
 
@@ -316,6 +354,7 @@ func _make_ghost() -> void:
 
 # ---------------------------------------------------------------- main loop
 func _process(delta: float) -> void:
+	play_time += delta
 	var prev := time_of_day
 	time_of_day = fmod(time_of_day + delta / DAY_LENGTH, 1.0)
 	if prev < 0.25 and time_of_day >= 0.25:
@@ -325,6 +364,8 @@ func _process(delta: float) -> void:
 		message("Dawn breaks. You survived the night!", UITheme.WARM)
 		if day > 1:
 			player.add_xp(Skills.XP.dawn)
+		save_game(false)
+		message("Game autosaved.", UITheme.MUTED)
 	var n := is_night()
 	if n != _night:
 		_night = n
@@ -362,6 +403,7 @@ func _process(delta: float) -> void:
 	if _reveal_t <= 0:
 		_reveal_t = 0.4
 		world_map.reveal(player.global_position)
+	camera.reset_smoothing()
 
 	var show_ghost := player.holding("campfire") and not player.dead and not hud.any_window_open()
 	_ghost.visible = show_ghost
@@ -815,3 +857,108 @@ func remove_waypoint(i: int) -> void:
 func restore_cursor() -> void:
 	if not player.dead and not hud.any_window_open():
 		_set_crosshair()
+
+
+# ---------------------------------------------------------------- save / load
+func save_game(show_message := true) -> bool:
+	if player.dead:
+		return false
+	var felled := []
+	var rocks_gone := []
+	var bushes := []
+	for uid in _by_uid:
+		var n = _by_uid[uid]
+		if not is_instance_valid(n):
+			rocks_gone.append(uid)
+		elif n is ForestTree and n.felled:
+			felled.append(uid)
+		elif n is BerryBush and not n.ripe:
+			bushes.append([uid, n.regrow_left()])
+	var fires := []
+	for f in get_tree().get_nodes_in_group("campfires"):
+		fires.append([f.global_position.x, f.global_position.y, f.fuel])
+	var drops := []
+	for d in get_tree().get_nodes_in_group("drops"):
+		if not d.is_queued_for_deletion():
+			drops.append([d.item_id, d.amount, d.global_position.x, d.global_position.y])
+	var animals := []
+	for a in get_tree().get_nodes_in_group("animals"):
+		if not a.is_queued_for_deletion():
+			animals.append([a.species, a.global_position.x, a.global_position.y, a.hp])
+	var wps := []
+	for wp in world_map.waypoints:
+		wps.append([wp.pos.x, wp.pos.y, wp.name, wp.color.to_html()])
+	var data := {
+		"seed": world_seed, "day": day, "time_of_day": time_of_day, "play_time": play_time,
+		"difficulty": Settings.difficulty,
+		"player": player.to_dict(),
+		"felled": felled, "rocks_gone": rocks_gone, "bushes": bushes,
+		"campfires": fires, "drops": drops, "animals": animals,
+		"waypoints": wps, "wp_counter": world_map._wp_counter,
+		"fog": Marshalls.raw_to_base64(world_map.fog.save_png_to_buffer()),
+	}
+	var ok := SaveManager.write(SaveManager.current_slot, data)
+	if show_message:
+		message("Game saved to slot %d." % (SaveManager.current_slot + 1) if ok else "Saving failed!", UITheme.ACCENT if ok else Color(1, 0.5, 0.5))
+	return ok
+
+
+func _apply_save(d: Dictionary) -> void:
+	day = int(d.get("day", 1))
+	time_of_day = float(d.get("time_of_day", 0.3))
+	play_time = float(d.get("play_time", 0.0))
+	player.from_dict(d.get("player", {}))
+	for uid in d.get("felled", []):
+		var t = _by_uid.get(int(uid))
+		if t is ForestTree:
+			t.make_stump()
+			world_map.clear_at(t.global_position)
+	for uid in d.get("rocks_gone", []):
+		var r = _by_uid.get(int(uid))
+		if r is Boulder:
+			world_map.clear_at(r.global_position, false)
+			_by_uid[int(uid)] = null
+			r.free()
+	for b in d.get("bushes", []):
+		var bush = _by_uid.get(int(b[0]))
+		if bush is BerryBush:
+			bush.set_regrow(float(b[1]))
+	for f in d.get("campfires", []):
+		var c := Campfire.new()
+		c.game = self
+		c.position = Vector2(f[0], f[1])
+		entities.add_child(c)
+		c.fuel = float(f[2])
+	for dr in d.get("drops", []):
+		var p := Vector2(dr[2], dr[3])
+		spawn_drop(str(dr[0]), int(dr[1]), p, p)
+	# replace the freshly generated wildlife with the saved animals
+	for a in get_tree().get_nodes_in_group("animals"):
+		a.free()
+	for a in d.get("animals", []):
+		var an := Animal.new()
+		an.position = Vector2(a[1], a[2])
+		an.setup(self, str(a[0]))
+		an.hp = float(a[3])
+		entities.add_child(an)
+	for w in d.get("waypoints", []):
+		var wp := world_map.add_waypoint(Vector2(w[0], w[1]))
+		if wp.is_empty():
+			continue
+		wp.name = str(w[2])
+		wp.color = Color.html(str(w[3]))
+		var flag := WaypointFlag.new()
+		flag.position = wp.pos
+		flag.color = wp.color
+		flag.label = wp.name
+		entities.add_child(flag)
+		_flags.append(flag)
+	world_map._wp_counter = int(d.get("wp_counter", world_map.waypoints.size()))
+	if d.has("fog"):
+		var img := Image.new()
+		if img.load_png_from_buffer(Marshalls.base64_to_raw(str(d.fog))) == OK:
+			img.convert(Image.FORMAT_RGBA8)
+			world_map.fog = img
+			world_map.fog_tex.set_image(img)
+	world_map.reveal(player.global_position)
+	camera.reset_smoothing()

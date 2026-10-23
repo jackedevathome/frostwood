@@ -54,7 +54,7 @@ func setup(g: Node) -> void:
 	var top := HBoxContainer.new()
 	top.add_theme_constant_override("separation", 12)
 	v.add_child(top)
-	var title := UITheme.label("Map of Frostwood", 30, UITheme.ACCENT)
+	var title := UITheme.heading("Map of Frostwood", 30)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(title)
 	for pair in [["Center on me", _recenter], ["Clear waypoints", _clear], ["Close", close]]:

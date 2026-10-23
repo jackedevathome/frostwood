@@ -180,6 +180,16 @@ func _draw_stump() -> void:
 	draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
 
 
+## Instantly turns this tree into a stump (used when loading a save).
+func make_stump() -> void:
+	felled = true
+	_fall_t = -1.0
+	remove_from_group("hittable")
+	var cs: CollisionShape2D = get_child(0)
+	(cs.shape as CircleShape2D).radius = 6.0 * scale_f
+	queue_redraw()
+
+
 func set_faded(f: bool) -> void:
 	if f != faded:
 		faded = f

@@ -138,7 +138,7 @@ func _process(_delta: float) -> void:
 
 func _draw_header() -> void:
 	var c := _header
-	HUD.text(c, Vector2(0, 30), "Skill Tree", 30, UITheme.ACCENT)
+	HUD.text_head(c, Vector2(0, 30), "Skill Tree", 30, UITheme.ACCENT)
 	HUD.text(c, Vector2(0, 30), "Level %d" % player.level, 24, Color.WHITE, HORIZONTAL_ALIGNMENT_CENTER, c.size.x)
 	var pts_col := Color(1.0, 0.85, 0.4) if player.skill_points > 0 else UITheme.MUTED
 	HUD.text(c, Vector2(0, 30), "Skill points: %d" % player.skill_points, 22, pts_col, HORIZONTAL_ALIGNMENT_RIGHT, c.size.x)
@@ -153,7 +153,8 @@ func _draw_header() -> void:
 func _draw_branch(col: Control) -> void:
 	var br: Dictionary = col.get_meta("branch")
 	col.draw_style_box(UITheme.box(Color(0.05, 0.07, 0.1, 0.7), Color(br.color, 0.35), 1, 10, 0), Rect2(Vector2.ZERO, col.size))
-	HUD.text(col, Vector2(0, 30), br.name, 22, br.color, HORIZONTAL_ALIGNMENT_CENTER, col.size.x)
+	HUD.text_head(col, Vector2(0, 32), br.name, 22, br.color, HORIZONTAL_ALIGNMENT_CENTER, col.size.x)
+	UITheme.draw_ornament(col, Vector2(col.size.x / 2, 46), 90, Color(br.color, 0.7))
 	for id in Skills.DATA:
 		var d: Dictionary = Skills.DATA[id]
 		if d.branch != br.id or d.req == "":

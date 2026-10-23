@@ -18,7 +18,7 @@ func _draw() -> void:
 	var player: Player = game.player
 	if map == null or map.terrain_tex == null:
 		return
-	draw_style_box(UITheme.box(Color(0.04, 0.06, 0.09, 0.85), Color(0.5, 0.65, 0.78, 0.5), 2, 8, 0), Rect2(Vector2.ZERO, Vector2(size.x, MAP_H)))
+	draw_style_box(HUD.hud_panel(), Rect2(Vector2.ZERO, Vector2(size.x, MAP_H)))
 	var r := Rect2(6, 6, size.x - 12, MAP_H - 12)
 	var pp := player.global_position
 	var k := r.size.x / VIEW
@@ -54,7 +54,7 @@ func _draw() -> void:
 			var side := dir.orthogonal()
 			draw_colored_polygon(PackedVector2Array([e + dir * 6, e - dir * 4 + side * 5, e - dir * 4 - side * 5]), wp.color)
 	MapScreen.draw_player(self, center, player.aim, 7.0)
-	draw_rect(r, Color(0.02, 0.03, 0.05, 0.6), false, 1.5)
+	draw_style_box(UITheme.box(Color(0, 0, 0, 0), Color(0.02, 0.03, 0.05, 0.7), 2, 8, 0), r)
 	HUD.text(self, Vector2(r.position.x, r.position.y + 15), "N", 13, Color(1, 1, 1, 0.8), HORIZONTAL_ALIGNMENT_CENTER, r.size.x)
 
 	_draw_clock(Rect2(0, MAP_H + 4, size.x, size.y - MAP_H - 4))
@@ -74,7 +74,7 @@ func _shade_outside(r: Rect2, pp: Vector2, k: float, half: float) -> void:
 
 
 func _draw_clock(r: Rect2) -> void:
-	draw_style_box(UITheme.box(Color(0.04, 0.06, 0.09, 0.82), Color(0.5, 0.65, 0.78, 0.35), 1, 8, 0), r)
+	draw_style_box(HUD.hud_panel(), r)
 	var tod: float = game.time_of_day
 	var night: bool = game.is_night()
 	var ic := r.position + Vector2(20, r.size.y / 2)

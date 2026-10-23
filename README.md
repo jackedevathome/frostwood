@@ -56,8 +56,22 @@ point from the edge. The fullscreen map (M) pauses the game and reveals only wha
 Left click to place a waypoint (up to 12), right click to remove one, scroll to zoom and drag to pan.
 Each waypoint also plants a coloured flag in the world.
 
+## Saving
+There are **3 save slots**. From the main menu:
+- **Continue** loads your most recent save.
+- **New Game** lets you pick a slot. Picking a used slot asks before overwriting it.
+- **Load Game** lists the slots with day, level, difficulty, play time and when you last saved. You can also delete a save there.
+
+The game **autosaves every dawn** and when you choose **Save & Quit to Menu** or close the window. You can also save anytime
+from the pause menu (Esc). If you die, you can load your last save or start a new game in the same slot.
+
+A save stores the world seed plus everything that changed: felled trees, broken rocks, picked bushes, campfires and their fuel,
+items on the ground, animals, the explored map, waypoints, time of day, and your stats, inventory, hotbar, XP and skills.
+Saves are JSON files in Godot's user folder (`user://saves/`), which on Windows is
+`%APPDATA%\Godot\app_userdata\Frostwood\saves`.
+
 ## Main menu & settings
-New Game, How to Play, Settings, Credits, Quit. Settings has four tabs:
+Continue, New Game, Load Game, How to Play, Settings, Credits, Quit. Settings has four tabs:
 - **Audio:** master, music, sound effects and ambience volume.
 - **Video:** fullscreen, VSync, FPS counter, screen shake, night brightness.
 - **Gameplay:** difficulty (Easy/Normal/Hard), damage numbers, your longest survival.
@@ -76,11 +90,17 @@ To regenerate the audio: `python3 tools/generate_audio.py` (or only some sounds:
 ## Project layout
 ```
 scenes/            main_menu.tscn, game.tscn (thin scenes, built in code)
-scripts/autoload/  settings.gd (options, buses, key bindings), audio.gd (sfx/music/ambience), fader.gd
+scripts/autoload/  settings.gd (options, buses, key bindings), audio.gd (sfx/music/ambience), fader.gd,
+                   save_manager.gd (save slots)
 scripts/ui/        main menu, animated aurora background, settings, pause menu, death screen, theme
 scripts/game/      game (world gen, day/night, spawning), player, animals, trees, boulders, bushes,
                    campfire, arrows, item drops, HUD, ground, item & recipe database
 assets/audio/      generated .ogg music/ambience and .wav effects
+assets/fonts/      Cinzel + Alegreya Sans (OFL)
 tools/             generate_audio.py
 ```
 All graphics are vector shapes drawn in code, so there are no image files.
+
+## Fonts
+[Cinzel](https://fonts.google.com/specimen/Cinzel) (headings) and [Alegreya Sans](https://fonts.google.com/specimen/Alegreya+Sans)
+(text), both under the SIL Open Font License. The licence files are in `assets/fonts/`.

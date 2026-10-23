@@ -5,6 +5,16 @@ extends Node2D
 var kind := "bush"
 var ripe := true
 var _regrow := 0.0
+
+
+func regrow_left() -> float:
+	return 0.0 if ripe else _regrow
+
+
+func set_regrow(t: float) -> void:
+	ripe = t <= 0.0
+	_regrow = t
+	queue_redraw()
 var _leaves: Array = []
 var _berries: Array = []
 var _game: Node

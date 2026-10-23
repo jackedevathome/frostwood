@@ -8,6 +8,8 @@ var _dim: ColorRect
 var _panel: PanelContainer
 var _settings: SettingsMenu
 var _help: PanelContainer
+var _save_btn: Button
+var game: Node
 
 
 func _ready() -> void:
@@ -30,13 +32,16 @@ func _ready() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 12)
 	_panel.add_child(v)
-	var t := UITheme.label("Paused", 40, UITheme.ACCENT)
+	var t := UITheme.heading("Paused", 40)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(t)
-	for pair in [["Resume", resume], ["Settings", _open_settings], ["How to Play", _open_help], ["Quit to Main Menu", _quit]]:
-		var b := UITheme.button(pair[0], 300)
+	v.add_child(UITheme.ornament(300))
+	for pair in [["Resume", resume], ["Save Game", _save], ["Settings", _open_settings], ["How to Play", _open_help], ["Save & Quit to Menu", _quit]]:
+		var b := UITheme.button(pair[0], 320)
 		b.pressed.connect(pair[1])
 		v.add_child(b)
+		if pair[0] == "Save Game":
+			_save_btn = b
 
 	_help = PanelContainer.new()
 	_help.custom_minimum_size = Vector2(760, 520)
@@ -68,6 +73,7 @@ func _ready() -> void:
 func open() -> void:
 	show()
 	_panel.show()
+	_save_btn.text = "Save Game"
 	_help.hide()
 	_settings.hide()
 	get_tree().paused = true
@@ -99,7 +105,17 @@ func _back() -> void:
 	_panel.show()
 
 
+func _save() -> void:
+	if game and game.save_game(false):
+		_save_btn.text = "Saved to slot %d" % (SaveManager.current_slot + 1)
+		Audio.play("craft", -8)
+	else:
+		_save_btn.text = "Saving failed"
+
+
 func _quit() -> void:
+	if game:
+		game.save_game(false)
 	Settings.set_muffled(false)
 	Audio.stop_music(0.8)
 	Audio.stop_all_ambience(0.8)

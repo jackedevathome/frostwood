@@ -19,9 +19,10 @@ func _ready() -> void:
 	root.add_theme_constant_override("separation", 14)
 	add_child(root)
 
-	var title := UITheme.label("Settings", 34, UITheme.ACCENT)
+	var title := UITheme.heading("Settings", 34)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	root.add_child(title)
+	root.add_child(UITheme.ornament(360))
 
 	_tabs = TabContainer.new()
 	_tabs.size_flags_vertical = Control.SIZE_EXPAND_FILL
